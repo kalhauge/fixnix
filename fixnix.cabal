@@ -21,9 +21,11 @@ library
   exposed-modules:  FixNix
   build-depends:    base >=4.12 && <4.13
                   , megaparsec
+                  , neat-interpolation
                   , optparse-applicative
                   , path
                   , text
+                  , typed-process
   ghc-options: -Wall 
 
 executable fixnix
