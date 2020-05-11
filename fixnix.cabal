@@ -26,6 +26,8 @@ library
                   , path
                   , text
                   , typed-process
+  other-modules:  
+    Paths_fixnix
   ghc-options: -Wall 
 
 executable fixnix

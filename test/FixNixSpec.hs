@@ -61,7 +61,7 @@ locationTypeSpec (AnyLocationType (LocationType {..})) = describe (Text.unpack l
           counterexample (show target) do
             parse locParser "" target `shouldParse` a
 
-spec :: Spec 
+spec :: Spec
 spec = do
   describe "location types" do
     mapM_ locationTypeSpec locations 
@@ -74,7 +74,7 @@ spec = do
           , fetchUrlName = Just "Here"
           , fetchUrlUnpack = True
           }
-        output = [text|builtins.fetchurl {
+        output = [text|builtins.fetchTarball {
           name   = "Here";
           url    = "hello";
           sha256 = "0000000000000000000000000000000000000000000000000000";
@@ -87,7 +87,7 @@ spec = do
           , fetchUrlName = Nothing
           , fetchUrlUnpack = True
           }
-        output = [text|builtins.fetchurl {
+        output = [text|builtins.fetchTarball {
           url    = "hello";
           sha256 = "0000000000000000000000000000000000000000000000000000";
         }|]
