@@ -34,7 +34,7 @@ executable fixnix
   -- other-extensions:
   build-depends:       base >=4.12 && <4.13
                      , fixnix
-  -- hs-source-dirs:
+  hs-source-dirs: app
   default-language:    Haskell2010
 
 test-suite test-fixnix
@@ -43,14 +43,18 @@ test-suite test-fixnix
   hs-source-dirs: test
   other-modules:  
     FixNixSpec
+    Spec
   build-depends:    
       base >=4.12 && <4.13
     , fixnix
     , hspec
     , hspec-discover
+    , HUnit
     , hspec-expectations-pretty-diff
     , hspec-megaparsec
     , megaparsec
+    , neat-interpolation
     , optparse-applicative
     , path
     , text
+    , typed-process

@@ -1,5 +1,9 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE TupleSections #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE QuasiQuotes #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -7,90 +11,73 @@
 module FixNix where
 
 -- base 
-import Data.Bifunctor
-import Data.Void
-import Control.Monad
-import System.Exit
-
--- containers
-import qualified Data.Set as S
+import           Data.Bifunctor
+import           Data.Void
+import           Data.Foldable
+import qualified Data.List.NonEmpty as NE
+import qualified Data.List as L
+import           Data.Maybe
+import           System.Exit
 
 -- text
-import qualified Data.Text as Text
-import qualified Data.Text.Lazy as LazyText
-import qualified Data.Text.Lazy.Encoding as LazyText
---import qualified Data.Text.IO as Text
+import           Data.Text                      ( Text )
+import qualified Data.Text                     as Text
+import qualified Data.Text.Lazy                as LazyText
+-- import qualified Data.Text.Lazy.IO             as LazyText
+import qualified Data.Text.Lazy.Encoding       as LazyText
+import           Data.Text.Lazy.Builder        as Builder (Builder, fromText) 
+import qualified Data.Text.IO as Text
 
 -- megaparsec
-import qualified Text.Megaparsec      as P
-import qualified Text.Megaparsec.Char as P
+import qualified Text.Megaparsec               as P
+import qualified Text.Megaparsec.Char          as P
 
 -- neat-interpolation
-import NeatInterpolation (text)
+import           NeatInterpolation              ( text )
 
 -- optparse-applicative
-import Options.Applicative
+import           Options.Applicative
+import qualified Options.Applicative.Help.Pretty as D
 
 -- path
-import Path
+import           Path
 
 -- typed-process
-import System.Process.Typed
+import           System.Process.Typed
 
-type P = P.Parsec Void Text.Text
 
 data LocationExample = LocationExample
-  { exampleText :: Text.Text
-  , exampleHelp :: Text.Text
+  { exampleText :: Text
+  , exampleHelp :: D.Doc
   }
 
-example :: Text.Text -> Text.Text -> LocationExample
+example :: Text.Text -> D.Doc -> LocationExample
 example = LocationExample
 
+-- | A simple parser
+type P = P.Parsec Void Text
+
 -- | A location type
-data LocationType = LocationType
-  { locationName     :: Text.Text
-  , locationPrefix   :: S.Set Text.Text
-  , locationExamples :: [ LocationExample ]
-  , locationParser   :: P (IO (Text.Text, Maybe Text.Text))
+data LocationType a = LocationType
+  { locName          :: Text
+  , locPrefix        :: NE.NonEmpty Text
+  , locDocumentation :: D.Doc
+  , locExamples      :: [ LocationExample ]
+  , locParser        :: P a
+  , locPrinter       :: a -> Builder
+  , locToUrl         :: a -> IO (Text, Text)
   }
 
-githubLocation = LocationType
-  { locationName = "GitHub"
-  , locationPrefix = S.fromList [ "gh", "github" ]
-  , locationExamples = 
-    [ example "github:nixos/nixpkgs/tags/20.03" 
-        "accesss the tag of a github page"
-    , example "github:nixos/nixpkgs/heads/nixpkgs-20.03" 
-        "accesss the branch of a github page"
-    , example "gh:nixos/nixpkgs/rev/1234abcd" 
-        "accesss the revision of a github page"
-    ]
-  , locationParser = do
-      gitHubOwner <- P.takeWhile1P Nothing ('/' /=)
+data AnyLocationType = forall a. (Show a, Eq a) => AnyLocationType (LocationType a)
 
-      P.char '/'
+data Location = forall a. Location (LocationType a) a
 
-      gitHubRepo <- P.takeWhile1P Nothing ('/' /=)
-
-      P.char '/'
-
-      commit <- gitCommitP
-
-      return $ do 
-        case commit of
-          GitRevision rev -> do
-            return 
-              ( [text|https://github.com/$gitHubOwner/$gitHubRepo/archive/$rev.tar.gz|]
-              , Just [text|${gitHubRepo}_$txt|]
-              )
-          GitTag tag -> do
-            return 
-              ( [text|https://github.com/$gitHubOwner/$gitHubRepo/archive/$tag.tar.gz|]
-              , Just [text|${gitHubRepo}_$txt|]
-              )
-          -- GitBranch bar -> do
-  }
+locationP :: AnyLocationType -> P Location
+locationP (AnyLocationType (lt@(LocationType {..}))) = do
+  P.label "location type" $ 
+    msum [ P.string' prfx | prfx <- NE.toList locPrefix ]
+  P.char ':'
+  Location lt <$> locParser
 
 gitCommitP :: P GitCommit
 gitCommitP = msum 
@@ -107,63 +94,87 @@ gitCommitP = msum
     P.someTill P.hexDigitChar P.eof P.<?> "a revision"
   ]
 
-data GitCommit
-  = GitBranch    !Text.Text
-  | GitTag       !Text.Text
-  | GitRevision  !Text.Text
---  | GitWildCard  !Text.Text
-  deriving (Show)
 
 data AddConfig = AddConfig
-  { cfgFixFile  :: !(Path Rel File)
-  , cfgLocation :: !(LocationType, Text.Text, Maybe Text.Text)
+  { cfgFixFile  :: !(Maybe (Path Rel File))
+  , cfgLocation :: !Location
   , cfgName     :: !(Maybe Text.Text)
+  , cfgUnpack   :: !Bool
   }
 --   deriving (Show)
 
-readLocation :: [LocationType] -> ReadM (LocationType, Text.Text, Maybe Text.Text)
+readLocation :: [AnyLocationType] -> ReadM Location
 readLocation ltps = eitherReader 
-  $ first P.errorBundlePretty . P.parse (locationP ltps) "LOCATION" . Text.pack
+  $ first P.errorBundlePretty . P.parse (oneOfLocationP ltps) "LOCATION" . Text.pack
 
-locationP :: [LocationType] -> P (LocationType, Text.Text, Maybe Text.Text)
-locationP ltps = msum 
-    [ do
-      P.label "location type" $ 
-        msum [ P.string' prfx | prfx <- S.toList locationPrefix ]
-      P.char ':'
-      (url, name) <- locationParser
-      return (lt, url, name)
-    | lt@(LocationType {..}) <- ltps
-    ]
- where
+oneOfLocationP :: [AnyLocationType] -> P Location
+oneOfLocationP = msum . map locationP
 
-parseAddConfig :: [LocationType] -> Parser AddConfig
+parseAddConfig :: [AnyLocationType] -> Parser AddConfig
 parseAddConfig ltps = do
   cfgLocation <- argument (readLocation ltps) $ 
     metavar "LOCATION"
-    <> help "the location to download"
+    <> help "The location to download"
 
-  cfgFixFile <- argument (maybeReader parseRelFile) $
+  cfgFixFile <- optional . argument (maybeReader parseRelFile) $
     metavar "FILE"
-    <> help "the relative path to the fix file."
-  
+    <> help "The relative path to the fix file."
+
   cfgName <- optional . strOption $
     long "name"
     <> metavar "NAME"
-    <> help "the name of the file."
+    <> help "The name of the fix deriviation."
+  
+  cfgUnpack <- switch $
+    long "unpack"
+    <> short 'u'
+    <> help "Should the item be unpacked?"
 
   pure $ AddConfig 
     { cfgFixFile
     , cfgLocation
     , cfgName
+    , cfgUnpack
     }
 
-readConfig :: [LocationType] -> IO AddConfig 
+readConfig :: [AnyLocationType] -> IO AddConfig 
 readConfig ltps = execParser $ 
   info (parseAddConfig ltps <**> helper)
     ( fullDesc
     <> header "fixnix - a nix version fixer"
+    <> footerDoc (Just footer)
     )
+ where
+  footer = D.vcat
+    [ "Doc string"
+    , ""
+    , flip foldMap ltps \(AnyLocationType (LocationType {..})) -> D.nest 2 $ D.vcat
+      [ D.hsep 
+        [ "*", D.text (Text.unpack locName)
+        , D.encloseSep "(" ")" ", " (D.text . Text.unpack <$> NE.toList locPrefix)
+        ]
+      , ""
+      , locDocumentation
+      , ""
+      , "Examples:"
+      , ""
+      , D.vsep $ 
+        [ D.nest 2 . D.vsep $
+          [ D.hsep 
+            [ "$"
+            , "fixnix"
+            , ttext (NE.head locPrefix) <> ":" <> ttext l
+            ]
+          , ""
+          , e
+          , ""
+          ]
+        | LocationExample l e <- locExamples
+        ]
+      ]
+    ]
+
+ttext = D.text . Text.unpack
 
 newtype Sha256 = Sha256 
   { sha256AsText :: Text.Text }
@@ -207,16 +218,95 @@ prefetchIO furl = do
     ExitSuccess   -> Just (Sha256 . LazyText.toStrict $ LazyText.decodeUtf8 out)
     ExitFailure _ -> Nothing
 
-locations = [ githubLocation ]
+locations :: [ AnyLocationType ]
+locations = 
+  [ AnyLocationType githubLocation 
+  ]
 
 run :: IO ()
 run = do
-  cfg <- readConfig locations
-  return ()
-  -- case cfgLocation cfg of 
-  --   GitHub gf gc  -> FetchUrl 
-  --     { fetchUrlUrl :: [text|http://github.com/$|]
-  --     , fetchUrlName = 
-  --     }
-  -- prefetchIO
+  AddConfig {..} <- readConfig locations
+  case cfgLocation of
+    Location lt a -> do
+      (fetchUrlUrl, Just . flip fromMaybe cfgName -> fetchUrlName) <- locToUrl lt a
+      let fetchUrlUnpack = cfgUnpack
+      let furl = FetchUrl {..}
+      sha256 <- prefetchIO furl
+      case sha256 of 
+        Nothing -> fail "Could not prefetch url."
+        Just sha256 -> 
+          Text.putStrLn (renderFetchUrl furl sha256)
+-- * Locations
+
+data GitCommit
+  = GitBranch    !Text
+  | GitTag       !Text
+  | GitRevision  !Text
+  | GitWildCard  !Text
+  deriving (Show, Eq)
+
+-- | GitHub have an intersting API for connecting and downloading branches
+-- and tags.
+githubLocation :: LocationType (Text, Text, GitCommit)
+githubLocation = LocationType {..} where
+  locName = "GitHub"
+  locPrefix = "github" NE.:| ["gh"]
+  locDocumentation =
+    "Connect to the github API."
+  locExamples = 
+    [ example "nixos/nixpkgs/tags/20.03" 
+        "Accesss the tag of a github page"
+    , example "nixos/nixpkgs/heads/nixpkgs-20.03" 
+        $ "Accesss the branch" D.</> "of a github page."
+        D.</> "It will use" D.</> "`git ls-remote` to fix the current revision."
+    , example "nixos/nixpkgs/rev/1234abcd" 
+        "Accesss the revision of a github page"
+    ]
+  locParser = do
+    gitHubOwner <- P.takeWhile1P Nothing ('/' /=)
+    P.char '/'
+
+    gitHubRepo <- P.takeWhile1P Nothing ('/' /=)
+    P.char '/'
+
+    (gitHubOwner, gitHubRepo,) <$> gitCommitP
+
+  locPrinter (gitHubOwner, gitHubRepo, commit) = 
+    Builder.fromText gitHubOwner <> "/" 
+    <> Builder.fromText gitHubRepo <> "/" 
+    <> case commit of
+        GitBranch   branch -> "heads/" <> Builder.fromText branch
+        GitTag      tag    -> "tags/"  <> Builder.fromText tag
+        GitRevision rev    -> "rev/"  <> Builder.fromText rev
+
+  locToUrl (gitHubOwner, gitHubRepo, commit) = do
+    let
+      base = "https://github.com/" <> gitHubOwner <> "/" <> gitHubRepo
+
+    (url, name) <- case commit of 
+      GitTag tag -> return 
+        ( tag <> ".tar.gz"
+        , gitHubRepo <> "_" <> tag
+        )
+      GitRevision rev -> return 
+        ( rev <> ".tar.gz"
+        , gitHubRepo <> "_" <> rev
+        )
+      GitBranch branch -> do
+        out <- readProcessStdout_
+          $ proc "git" ["ls-remote", Text.unpack base, Text.unpack branch]
+        case L.uncons . LazyText.words $ LazyText.decodeUtf8 out of
+          Just (LazyText.toStrict -> rev, _) -> return
+            ( rev <> ".tar.gz"
+            , gitHubRepo <> "_" <> branch <> "_" <> (Text.take 6 rev)
+            )
+          Nothing -> 
+            fail $ "Could not find branch: " ++ Text.unpack branch
+
+    return 
+      ( base <> "/archive/" <> url
+      , name
+      )
+
+
 

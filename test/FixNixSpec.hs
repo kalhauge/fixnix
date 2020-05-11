@@ -1,5 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE QuasiQuotes #-}
 module FixNixSpec where
@@ -13,43 +14,57 @@ import Text.Megaparsec
 
 import Control.Monad
 import qualified Data.Text as Text
+import qualified Data.Text.Lazy as LazyText
+import qualified Data.Text.Lazy.Builder as Builder
+
+import Data.Foldable
+import qualified Data.List as L
+
+import Control.Exception
+import Type.Reflection
+
+import Test.HUnit.Lang
 
 import FixNix
 
+data WithCounterExample = WithCounterExample [String] SomeException 
+
+instance Show WithCounterExample where
+  show (WithCounterExample examples e@(SomeException ex)) = 
+    "Counter examples: " ++ "\n" ++
+      fold (L.zipWith (\i str -> " " ++ show i ++ ") " ++ str ++ "\n") [1..] examples)
+    ++ case fromException e of 
+         Just (HUnitFailure a reason) -> formatFailureReason reason
+         Nothing -> show (typeOf ex) ++ ": " ++ show ex 
+
+instance Exception WithCounterExample where
+
+counterexample :: HasCallStack => String -> IO a -> IO a
+counterexample str io = catches io
+  [ Handler (\(WithCounterExample strs e) -> throwIO (WithCounterExample (str:strs) e))
+  , Handler (\e -> throwIO (WithCounterExample [str] e)) 
+  ]
+
+locationTypeSpec :: AnyLocationType -> Spec
+locationTypeSpec (AnyLocationType (LocationType {..})) = describe (Text.unpack locName) do
+  describe "parser" do
+    forM_ locExamples \LocationExample {..} ->  
+      it ("should succeed on " ++ show exampleText) do
+        parse locParser "" `shouldSucceedOn` exampleText
+
+  describe "parser-printer adjunction" do
+    forM_ locExamples \LocationExample {..} -> do
+      it ("should parse-pretty-parse on " ++ show exampleText) do
+        let Right a = parse locParser "" exampleText 
+        counterexample (show a) do
+          let target = LazyText.toStrict (Builder.toLazyText $ locPrinter a)
+          counterexample (show target) do
+            parse locParser "" target `shouldParse` a
+
 spec :: Spec 
 spec = do
-  describe "location parser" do
-    forM_ locations \LocationType {..} -> do
-      describe (Text.unpack locationName) do
-        forM_ locationExamples \LocationExample {..} ->  
-          it ("should succeed on " ++ show exampleText) do
-            parse locationParser "" `shouldSucceedOn` exampleText
-      -- let 
-      --   itShouldSucceedOn s = 
-      --     it ("should succeed on " ++ show s) do
-      --       parse locationParser "" `shouldSucceedOn` s
-
-      --   itShouldFailOn s = 
-      --     it ("should fail on " ++ show s) do
-      --       parse locationParser "" `shouldFailOn` s
-
-
-      -- describe "nixos" do
-      --   itShouldSucceedOn "nixos:tags/20.03" 
-      --   itShouldSucceedOn "nixos:heads/nixpkgs-20.03" 
-      --   itShouldSucceedOn "nix:heads/nixpkgs-20.03" 
-
-      --   -- itShouldSucceedOn "nixos:AB023ad"
-      --   -- itShouldSucceedOn "nixos:20.03"
-
-      --   itShouldFailOn "nixos:tag/20"
-      --   itShouldFailOn "nixos:eads/nixpkgs-20.03" 
-      --   itShouldFailOn "nixos:tags/"
-
-      -- describe "github" do
-      --   itShouldSucceedOn "github:nixos/nixpkgs/tags/20.03" 
-      --   itShouldSucceedOn "github:nixos/nixpkgs/heads/nixpkgs-20.03" 
-      --   itShouldSucceedOn "gh:kalhauge/fixnix/rev/abcdef" 
+  describe "location types" do
+    mapM_ locationTypeSpec locations 
 
   describe "renderFetchUrl" do
     it "should print something" do
