@@ -244,7 +244,7 @@ prefetchIO furl = do
   (ec, out) <- readProcessStdout . proc "nix-prefetch-url" $
     prefetchArgs furl
   return $ case ec of 
-    ExitSuccess   -> Just (Sha256 . LazyText.toStrict $ LazyText.decodeUtf8 out)
+    ExitSuccess   -> Just (Sha256 . LazyText.toStrict . LazyText.strip $ LazyText.decodeUtf8 out)
     ExitFailure _ -> Nothing
 
 run :: IO ()
