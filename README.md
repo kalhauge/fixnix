@@ -17,3 +17,21 @@ Now run fixnix, the default behaviour is to fix a version of nixpkgs.
 ```
 > fixnix nix/fix/nixpkgs.nix
 ```
+
+# TODO's
+
+- Make the parsers of the locations explainable. This means that any 
+  defined parsser will know how to print it-self.
+
+  For example the github parser should produce, something like:
+
+    '<github-owner>/<github-repo>/<git-commit>'
+
+    where <github-owner> and <github-repo> is a string and <git-commit> is
+
+      - 'tags/<tag>'     where <tag> is a string
+      - 'heads/<branch>' where <branch> is a string
+      - 'rev/<rev>'      where <rev> is a git revision
+
+
+
