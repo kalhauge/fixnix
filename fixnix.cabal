@@ -18,14 +18,20 @@ extra-source-files:  CHANGELOG.md
 
 library
   hs-source-dirs:   src
-  exposed-modules:  FixNix
+  exposed-modules:  
+    FixNix
+    FixNix.Core
+    FixNix.Locations
   build-depends:    base >=4.12 && <4.13
+                  , Diff
+                  , directory
                   , megaparsec
                   , neat-interpolation
                   , optparse-applicative
                   , path
                   , text
                   , typed-process
+                  , ansi-terminal
   other-modules:  
     Paths_fixnix
   ghc-options: -Wall 
@@ -43,6 +49,8 @@ test-suite test-fixnix
   type:  exitcode-stdio-1.0
   main-is: Main.hs
   hs-source-dirs: test
+  extra-source-files:
+    USAGE.txt
   other-modules:  
     FixNixSpec
     Spec

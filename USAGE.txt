@@ -1,0 +1,41 @@
+fixnix - a nix version fixer (version 0.0.0)
+
+Usage: fixnix LOCATION [--name NAME]
+
+Available options:
+  LOCATION                 The location to download
+  --name NAME              The name of the fix deriviation.
+  -o,--output FILE         The relative path to the fix file.
+  -u,--unpack              Should the item be unpacked? (tar only)
+  -h,--help                Show this help text
+
+Below is a list of defined locations. If the list is incomplete please
+file a bug report to https://github.com/kalhauge/fixnix.
+
+* GitHub (github, gh)
+  
+  Connect to the github API.
+  
+  Examples:
+  
+  $ fixnix github:nixos/nixpkgs/tags/20.03
+    
+    fetches: https://github.com/nixos/nixpkgs/archive/20.03.tar.gz
+    name: nixpkgs_20.03
+    
+    Accesss the tag of a github page.
+    
+  $ fixnix github:nixos/nixpkgs/rev/1234abcd
+    
+    fetches: https://github.com/nixos/nixpkgs/archive/1234abcd.tar.gz
+    name: nixpkgs_1234abcd
+    
+    Accesss the revision of a github page.
+    
+  $ fixnix github:nixos/nixpkgs/heads/nixpkgs-20.03
+    
+    (unpure)
+    
+    Accesss the branch of a github page. It will use
+    `git ls-remote` to fix the current revision.
+    
