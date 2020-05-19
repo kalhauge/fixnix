@@ -72,31 +72,36 @@ githubLocation = LocationType {..} where
 
     return (gitHubOwner, gitHubRepo, commit)
 
-  locTypeFinder (gitHubOwner, gitHubRepo, commit) = LocationFinder 
-    (Text.intercalate "/" [ gitHubOwner, gitHubRepo, gitCommitToText commit ])
-    base
-    $ case commit of 
+  locTypeFinder (gitHubOwner, gitHubRepo, commit) = LocationFinder { .. }
+   where
+    finderIdentifier =
+      Text.intercalate "/" [ gitHubOwner, gitHubRepo, gitCommitToText commit ]
+    finderBaseName = gitHubRepo
+    finderUnpack   = True
+    finderLocation = case commit of 
       GitTag tag -> Right $ Location
         { locUrl = baseUrl <> "/archive/" <> tag <> ".tar.gz"
-        , locName = base <> "_" <> tag
+        , locName = finderBaseName <> "_" <> tag
+        , locUnpack = finderUnpack
         }
       GitRevision rev -> Right $ Location
         { locUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
-        , locName = base <> "_" <> rev
+        , locName = finderBaseName <> "_" <> rev
+        , locUnpack = finderUnpack
         }
       GitBranch branch -> Left $ do
         out <- readProcessStdout_
-          $ proc "git" ["ls-remote", Text.unpack base, Text.unpack branch]
+          $ proc "git" ["ls-remote", Text.unpack finderBaseName, Text.unpack branch]
         case L.uncons . LazyText.words $ LazyText.decodeUtf8 out of
           Just (LazyText.toStrict -> rev, _) -> return $ Location
             { locUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
-            , locName = base <> "_" <> branch <> "_" <> (Text.take 6 rev)
+            , locName = finderBaseName <> "_" <> branch <> "_" <> (Text.take 6 rev)
+            , locUnpack = finderUnpack
             }
           Nothing -> 
             fail $ "Could not find branch: " ++ Text.unpack branch
      where
       baseUrl = "https://github.com/" <> gitHubOwner <> "/" <> gitHubRepo
-      base = gitHubRepo
 
 -- -- | Nixpkgs
 -- nixpkgsLocation :: LocationType 

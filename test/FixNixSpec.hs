@@ -74,30 +74,18 @@ spec = do
   describe "renderFetchUrl" do
     it "should print something" do
       let 
-        input = FetchUrl 
-          { fetchUrl = "hello"
-          , fetchName = Just "Here"
-          , fetchUnpack = True
+        input = Location
+          { locUrl = "hello"
+          , locName = "Here"
+          , locUnpack = True
           }
         output = [text|builtins.fetchTarball {
           name   = "Here";
           url    = "hello";
           sha256 = "0000000000000000000000000000000000000000000000000000";
         }|]
-      renderFetchUrl input zeroSha256 `shouldBe` output
-    it "should be able to not print name" do
-      let 
-        input = FetchUrl 
-          { fetchUrl = "hello"
-          , fetchName = Nothing
-          , fetchUnpack = True
-          }
-        output = [text|builtins.fetchTarball {
-          url    = "hello";
-          sha256 = "0000000000000000000000000000000000000000000000000000";
-        }|]
-      renderFetchUrl input zeroSha256 `shouldBe` output
-  
+      renderLocation input zeroSha256 `shouldBe` output
+
   describe "description" do
     fs <- runIO (readFile "USAGE.txt")
     it "should equal the description in USAGE.txt" do

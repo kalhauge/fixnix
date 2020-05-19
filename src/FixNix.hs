@@ -44,15 +44,18 @@ import           FixNix.Core
 import           FixNix.Locations
 
 data Config = Config
-  { cfgFixFile        :: !(Maybe (Path Rel File))
+  { cfgFixFile      :: !(Maybe (Path Rel File))
   , cfgLocationFinder :: !LocationFinder
   , cfgName           :: !(Maybe Text)
   , cfgUnpack         :: !Bool
   }
---   deriving (Show)
+
+data Commands 
+  = Print
 
 readLocationFinder :: [LocationType] -> ReadM LocationFinder
-readLocationFinder ltps = eitherReader $ parseEither (anyLocationFinderP ltps) "LOCATION" . Text.pack
+readLocationFinder ltps = eitherReader $ 
+  parseEither (anyLocationFinderP ltps) "LOCATION" . Text.pack
 
 parseConfig :: [LocationType] -> Parser Config
 parseConfig ltps = do
@@ -104,15 +107,14 @@ run = do
   Config {..} <- execParser $ fixnixParserInfo locations
   
   loc <- findLocation cfgLocationFinder
-  let furl = fetchUrlFromLocation cfgUnpack loc
 
-  sha256 <- prefetchIO furl
+  sha256 <- prefetchIO loc
   print sha256
   txt <- case sha256 of 
     Nothing -> fail "Could not prefetch url."
     Just sha256 -> do 
       args <- getArgs
-      return $ renderFixNixExpr args furl sha256
+      return $ renderFixNixExpr args loc sha256
   case cfgFixFile of
     Just fixfile -> do
       writeDiff txt fixfile
@@ -120,10 +122,10 @@ run = do
       Text.putStr txt
 
  where 
-  renderFixNixExpr args furl sha256 = foldMap (<> "\n")
+  renderFixNixExpr args loc sha256 = foldMap (<> "\n")
     [ "# Auto-generated with fixnix (version " <> textVersion <> ")"
     , "# fixnix " <> Text.unwords (map Text.pack args)
-    , renderFetchUrl furl sha256
+    , renderLocation loc sha256
     ]
    where
     textVersion = Text.pack $ showVersion Paths_fixnix.version

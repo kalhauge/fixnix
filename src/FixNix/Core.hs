@@ -56,8 +56,9 @@ import           System.Process.Typed
 
 -- | A location is a url with a name
 data Location = Location 
-  { locName :: Text
-  , locUrl  :: Text
+  { locName   :: Text
+  , locUrl    :: Text
+  , locUnpack :: Bool
   } deriving (Show, Eq)
 
 
@@ -153,54 +154,39 @@ anyLocationFinderP :: [LocationType] -> P LocationFinder
 anyLocationFinderP = 
   msum . map locationFinderP
 
-fetchUrlFromLocation :: Bool -> Location -> FetchUrl
-fetchUrlFromLocation unpack Location {..} = FetchUrl 
-  { fetchUrl = locUrl
-  , fetchName = Just locName
-  , fetchUnpack = unpack
-  }
-
--- | A FetchUrl request. 
-data FetchUrl = FetchUrl
-  { fetchUrl       :: Text
-  , fetchName      :: Maybe Text
-  , fetchUnpack    :: Bool
-  } 
-  deriving (Show)
-
 -- | Render a FetchUrl to Text.
-renderFetchUrl :: FetchUrl -> Sha256 -> Text
-renderFetchUrl FetchUrl {..} (sha256AsText -> sha256) =
-  [Neat.text|builtins.$fetcher {$name
-    url    = "$fetchUrl";
+renderLocation :: Location -> Sha256 -> Text
+renderLocation Location {..} (sha256AsText -> sha256) =
+  [Neat.text|builtins.$fetcher {
+    name   = "$locName";
+    url    = "$locUrl";
     sha256 = "$sha256";
   }|]
  where
-  fetcher = if fetchUnpack then "fetchTarball" else "fetchurl"
-  name = case fetchName of 
-    Just n -> "\n  " <> [Neat.text|name   = "$n";|] 
-    Nothing -> ""
+  fetcher = if locUnpack then "fetchTarball" else "fetchurl"
 
 -- | Prefetch a url, add it to the database and return a hash if it 
 -- succeeds.
-prefetchIO :: FetchUrl -> IO (Maybe Sha256)
+prefetchIO :: Location -> IO (Maybe Sha256)
 prefetchIO furl = do
   (ec, out) <- readProcessStdout . proc "nix-prefetch-url" $
     prefetchArgs furl
   return $ case ec of 
-    ExitSuccess   -> Just (Sha256 . LazyText.toStrict . LazyText.strip $ LazyText.decodeUtf8 out)
-    ExitFailure _ -> Nothing
+    ExitSuccess   -> 
+      Just (Sha256 . LazyText.toStrict . LazyText.strip $ LazyText.decodeUtf8 out)
+    ExitFailure _ -> 
+      Nothing
  where
-  prefetchArgs FetchUrl {..} = Text.unpack <$> concat 
-    [ [ "--unpack" | fetchUnpack ]
-    , maybe [] (\name -> [ "--name", name ]) fetchName
-    , [ fetchUrl ]
+  prefetchArgs Location {..} = Text.unpack <$> concat 
+    [ [ "--unpack" | locUnpack ]
+    , [ "--name", locName ]
+    , [ locUrl ]
     ]
 
 -- | A simple wraper around Text.
 newtype Sha256 = Sha256 
-  { sha256AsText :: Text }
-  deriving (Show)
+  { sha256AsText :: Text 
+  } deriving (Show)
 
 zeroSha256 :: Sha256
 zeroSha256 = Sha256 "0000000000000000000000000000000000000000000000000000"
