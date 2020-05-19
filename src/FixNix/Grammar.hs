@@ -1,5 +1,6 @@
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE GeneralisedNewtypeDeriving #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -110,13 +111,26 @@ prettyText = buildToText . render
 
 untilG :: Text -> Char -> Grammar Text
 untilG name sep = Simple name 
-  (P.takeWhile1P Nothing (/= sep) <* P.char sep) 
+  (P.takeWhileP Nothing (/= sep) <* P.char sep) 
   (Op \txt -> if Text.all (/= sep) txt 
     then Right $ 
       B.fromText txt <> B.fromString [sep]
     else Left $
       "found " ++  show sep ++ " in " ++ show txt 
       ++ ", but it is ended by " ++ show sep ++ "."
+  )
+
+until1G :: Text -> Char -> Grammar Text
+until1G name sep = Simple name 
+  (P.takeWhile1P Nothing (/= sep) <* P.char sep) 
+  (Op \txt -> if
+    | not (Text.all (/= sep) txt) ->
+      Left $ "found " ++  show sep ++ " in " ++ show txt 
+        ++ ", but it is ended by " ++ show sep ++ "."
+    | Text.null txt ->
+      Left $ show txt ++ "is empty but should have atleast one element"
+    | otherwise -> 
+      Right $ B.fromText txt <> B.fromString [sep]
   )
 
 class Detuple a b | a -> b where

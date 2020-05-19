@@ -12,36 +12,20 @@ import Test.Hspec.Megaparsec
 import Test.Hspec.Hedgehog
 import Test.Hspec.Expectations.Pretty
 
+import qualified Hedgehog.Gen as Gen
+import qualified Hedgehog.Range as Range
+
 import Text.Megaparsec
 
 import Data.Functor.Contravariant
 
 import Data.Text (Text)
+import Control.Monad
 import qualified Data.Text as Text
-
--- import NeatInterpolation (text)
--- 
--- import Text.Megaparsec
--- 
--- import Control.Monad
--- import qualified Data.Text as Text
 
 import Data.Text.Lazy.Builder as B
 
 import Data.Foldable
--- import System.Exit
--- import qualified Data.List as L
--- 
--- import Options.Applicative
--- 
--- import Control.Exception
--- import Type.Reflection
--- 
--- import Test.HUnit.Lang
--- 
--- import FixNix
--- import FixNix.Core
--- import FixNix.Locations
 
 import FixNix.Grammar
 import FixNix.Grammar.Church
@@ -86,9 +70,10 @@ enumerationG = productG EnumerationC
 spec :: Spec
 spec = do
   describeGrammar "github"
-    (detuple (untilG "git-owner" '/', untilG "git-repo" '/'))
+    (detuple (until1G "git-owner" '/', until1G "git-repo" '/'))
     [ ("hello/world/", ("hello", "world"))
     ]
+    ( liftM2 (,) (Gen.text (Range.linear 0 10) Gen.unicode) (Gen.text (Range.linear 0 10) Gen.unicode))
   
   describeGrammar "enumeration" 
     enumerationG
@@ -96,10 +81,11 @@ spec = do
     , ("two", Two)
     , ("three", Three)
     ]
+    ( Gen.element [ One, Two, Three ] )
 
 
-describeGrammar :: (Eq a, Show a) => String -> Grammar a -> [ (Text, a) ] -> PropertyT IO a -> Spec
-describeGrammar name grm examples = describe ("Grammar " <> name) do
+describeGrammar :: (Eq a, Show a) => String -> Grammar a -> [ (Text, a) ] -> Gen a -> Spec
+describeGrammar name grm examples generator = describe ("Grammar " <> name) do
   describe "examples" do
     forM_ examples \(from, to) -> do
       it ("should parse " ++ (Text.unpack from)) do
@@ -107,11 +93,12 @@ describeGrammar name grm examples = describe ("Grammar " <> name) do
       it ("should pretty " ++ show to) do
         prettyText grm to `shouldBe` Right from
   describe "adjunction" do
-    it "should be able to pretty-render-pretty" $ hedgehog \a ->
-      case prettyText a of
+    it "should be able to pretty-render-pretty" . hedgehog $ do
+      a <- forAll generator
+      case prettyText grm a of
         Left msg -> return ()
         Right b  -> do
-          parse (parser grm) "grammar" b `shouldParse` a
+          parse (parser grm) "grammar" b === Right a
 
 
 
