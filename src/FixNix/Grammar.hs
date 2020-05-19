@@ -44,7 +44,7 @@ import Data.Text.Lazy.Builder         ( Builder )
 import qualified Data.Text.Lazy.Builder        as B
 
 -- optparse-applicative
-import           Options.Applicative.Help   hiding ((<+>))
+import           Options.Applicative.Help    as D hiding ((<+>)) 
 
 -- megaparsec
 import qualified Text.Megaparsec               as P
@@ -70,12 +70,12 @@ data Grammar a where
   Terminal :: Text -> Grammar ()
   Simple   :: Text -> P a -> B a -> Grammar a
   SumG     :: Grammar a -> Grammar b -> Grammar (a, b)
-  ProductG     :: (Transformable (Church a), HasChurch a) 
+  ProductG     :: (Transformable (Church a), HasChurch a, NatFoldable (Church a))
     => Church a Grammar -> Grammar a
   IMap     :: (a -> b) -> (b -> a) -> Grammar a -> Grammar b
 
 productG :: 
-  (Transformable (Church a), HasChurch a) 
+  (Transformable (Church a), HasChurch a, NatFoldable (Church a)) 
   => Church a Grammar 
   -> Grammar a
 productG = ProductG
@@ -93,7 +93,7 @@ parser grm = case grm of
   IMap ab ba ga -> ab <$> parser ga
 
 -- | We can pretty print a grammar
-render :: forall a. Grammar a -> B a
+render :: Grammar a -> B a
 render grm = case grm of
   Terminal t   -> fromText t
   Simple n _ b -> b
@@ -105,12 +105,20 @@ render grm = case grm of
 prettyText :: Grammar a -> a -> Either String Text
 prettyText = buildToText . render 
 
--- -- | We can explain a grammar
--- explain :: Grammar a -> Doc
--- explain grm = case grm of
+explain :: Grammar a -> Doc
+explain = \case
+  Terminal t -> D.string (Text.unpack t)
+  Simple txt pa ba -> D.string (Text.unpack txt)
+  SumG ga gb -> explain ga <> explain gb
+  ProductG d -> foldN explain d
+  IMap ab ba ga -> explain ga
+
+explainText :: Grammar a -> Text
+explainText = Text.pack . flip displayS "" . renderCompact . explain
+
 
 untilG :: Text -> Char -> Grammar Text
-untilG name sep = Simple name 
+untilG name sep = Simple ("<" <> name <> ">" <> Text.singleton sep)
   (P.takeWhileP Nothing (/= sep) <* P.char sep) 
   (Op \txt -> if Text.all (/= sep) txt 
     then Right $ 
@@ -121,7 +129,7 @@ untilG name sep = Simple name
   )
 
 until1G :: Text -> Char -> Grammar Text
-until1G name sep = Simple name 
+until1G name sep = Simple ("<" <> name <> ">" <> Text.singleton sep) 
   (P.takeWhile1P Nothing (/= sep) <* P.char sep) 
   (Op \txt -> if
     | not (Text.all (/= sep) txt) ->

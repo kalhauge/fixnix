@@ -16,6 +16,7 @@ import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
 
 import Text.Megaparsec
+import NeatInterpolation
 
 import Data.Functor.Contravariant
 
@@ -60,6 +61,10 @@ instance Transformable EnumerationC where
   transform nat EnumerationC {..} = 
     EnumerationC { ifOne = nat ifOne, ifTwo = nat ifTwo, ifThree = nat ifThree }
 
+instance NatFoldable EnumerationC where
+  foldN nat EnumerationC {..} = 
+    nat ifOne <> nat ifTwo <> nat ifThree 
+
 enumerationG :: Grammar Enumeration
 enumerationG = productG EnumerationC
   { ifOne = "one"
@@ -74,7 +79,8 @@ spec = do
     [ ("hello/world/", ("hello", "world"))
     ]
     ( liftM2 (,) (Gen.text (Range.linear 0 10) Gen.unicode) (Gen.text (Range.linear 0 10) Gen.unicode))
-  
+    "<git-owner>/<git-repo>/"
+
   describeGrammar "enumeration" 
     enumerationG
     [ ("one", One)
@@ -82,10 +88,16 @@ spec = do
     , ("three", Three)
     ]
     ( Gen.element [ One, Two, Three ] )
+    [text|<enumeration>
 
+    where <enumeration> is 
+      one
+      two
+      three
+    |]
 
-describeGrammar :: (Eq a, Show a) => String -> Grammar a -> [ (Text, a) ] -> Gen a -> Spec
-describeGrammar name grm examples generator = describe ("Grammar " <> name) do
+describeGrammar :: (Eq a, Show a) => String -> Grammar a -> [ (Text, a) ] -> Gen a -> Text -> Spec
+describeGrammar name grm examples generator explained = describe ("Grammar " <> name) do
   describe "examples" do
     forM_ examples \(from, to) -> do
       it ("should parse " ++ (Text.unpack from)) do
@@ -99,6 +111,9 @@ describeGrammar name grm examples generator = describe ("Grammar " <> name) do
         Left msg -> return ()
         Right b  -> do
           parse (parser grm) "grammar" b === Right a
+  describe "explain" do
+    it "should be explained" do
+      explainText grm `shouldBe` explained
 
 
 

@@ -3,3 +3,4 @@
 :set -isrc
 :set -itest
 :load Main
+:ctags
