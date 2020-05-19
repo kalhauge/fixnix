@@ -11,6 +11,7 @@ import Test.Hspec hiding (shouldBe)
 import Test.Hspec.Megaparsec
 import Test.Hspec.Hedgehog
 import Test.Hspec.Expectations.Pretty
+import Test.HUnit.Lang
 
 import qualified Hedgehog.Gen as Gen
 import qualified Hedgehog.Range as Range
@@ -19,10 +20,14 @@ import Text.Megaparsec
 import NeatInterpolation
 
 import Data.Functor.Contravariant
+import Type.Reflection
+import Control.Exception
 
 import Data.Text (Text)
 import Control.Monad
 import qualified Data.Text as Text
+
+import qualified Data.List as L
 
 import Data.Text.Lazy.Builder as B
 
@@ -66,7 +71,7 @@ instance NatFoldable EnumerationC where
     nat ifOne <> nat ifTwo <> nat ifThree 
 
 enumerationG :: Grammar Enumeration
-enumerationG = productG EnumerationC
+enumerationG = sumG EnumerationC
   { ifOne = "one"
   , ifTwo = "two"
   , ifThree = "three"
@@ -76,34 +81,29 @@ spec :: Spec
 spec = do
   describeGrammar "github"
     (detuple (until1G "git-owner" '/', until1G "git-repo" '/'))
-    [ ("hello/world/", ("hello", "world"))
-    ]
+    [ "hello/world/" ]
     ( liftM2 (,) (Gen.text (Range.linear 0 10) Gen.unicode) (Gen.text (Range.linear 0 10) Gen.unicode))
-    "<git-owner>/<git-repo>/"
 
   describeGrammar "enumeration" 
     enumerationG
-    [ ("one", One)
-    , ("two", Two)
-    , ("three", Three)
-    ]
+    [ "one" , "two" , "three" ]
     ( Gen.element [ One, Two, Three ] )
-    [text|<enumeration>
 
-    where <enumeration> is 
-      one
-      two
-      three
-    |]
-
-describeGrammar :: (Eq a, Show a) => String -> Grammar a -> [ (Text, a) ] -> Gen a -> Text -> Spec
-describeGrammar name grm examples generator explained = describe ("Grammar " <> name) do
+describeGrammar :: (Eq a, Show a) => String -> Grammar a -> [ Text ] -> Gen a -> Spec
+describeGrammar name grm examples generator = describe ("Grammar " <> name) do
   describe "examples" do
-    forM_ examples \(from, to) -> do
-      it ("should parse " ++ (Text.unpack from)) do
-        parse (parser grm) "GRAMMA" from `shouldParse` to
-      it ("should pretty " ++ show to) do
-        prettyText grm to `shouldBe` Right from
+    forM_ examples \from -> do
+      it ("should parse " ++ Text.unpack from) do
+        parse (parser grm) "GRAMMA" `shouldSucceedOn` from 
+      it ("should parse-pretty-parse " ++ Text.unpack from) do
+        let Right a = parse (parser grm) "" from
+        counterexample (show a) do
+          case prettyText grm a of 
+            Right target -> 
+              counterexample (show target) do
+                parse (parser grm) "" target `shouldParse` a
+            Left a -> 
+              fail a
   describe "adjunction" do
     it "should be able to pretty-render-pretty" . hedgehog $ do
       a <- forAll generator
@@ -111,11 +111,6 @@ describeGrammar name grm examples generator explained = describe ("Grammar " <> 
         Left msg -> return ()
         Right b  -> do
           parse (parser grm) "grammar" b === Right a
-  describe "explain" do
-    it "should be explained" do
-      explainText grm `shouldBe` explained
-
-
 
 
   -- describe "parser" do 
@@ -125,4 +120,23 @@ describeGrammar name grm examples generator explained = describe ("Grammar " <> 
   --       githubGrammar = 
   --           detuple (var "git-owner" <+ "/", var "git-repo" <+ "/")
   --     parse (parser githubGrammar) "HELLO" `shouldSucceedOn` "hsello/this/"
+
+data WithCounterExample = 
+  WithCounterExample [String] SomeException 
+
+instance Show WithCounterExample where
+  show (WithCounterExample examples e@(SomeException ex)) = 
+    "Counter examples: " ++ "\n" ++
+      fold (L.zipWith (\i str -> " " ++ show i ++ ") " ++ str ++ "\n") [1..] examples)
+    ++ case fromException e of 
+         Just (HUnitFailure a reason) -> formatFailureReason reason
+         Nothing -> show (typeOf ex) ++ ": " ++ show ex 
+
+instance Exception WithCounterExample where
+
+counterexample :: HasCallStack => String -> IO a -> IO a
+counterexample str io = catches io
+  [ Handler (\(WithCounterExample strs e) -> throwIO (WithCounterExample (str:strs) e))
+  , Handler (\e -> throwIO (WithCounterExample [str] e)) 
+  ]
 

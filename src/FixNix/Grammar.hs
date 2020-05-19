@@ -44,7 +44,7 @@ import Data.Text.Lazy.Builder         ( Builder )
 import qualified Data.Text.Lazy.Builder        as B
 
 -- optparse-applicative
-import           Options.Applicative.Help    as D hiding ((<+>)) 
+import           Options.Applicative.Help      as D 
 
 -- megaparsec
 import qualified Text.Megaparsec               as P
@@ -69,16 +69,15 @@ buildToText (Op fa) =
 data Grammar a where
   Terminal :: Text -> Grammar ()
   Simple   :: Text -> P a -> B a -> Grammar a
-  SumG     :: Grammar a -> Grammar b -> Grammar (a, b)
-  ProductG     :: (Transformable (Church a), HasChurch a, NatFoldable (Church a))
-    => Church a Grammar -> Grammar a
+  ProductG :: Grammar a -> Grammar b -> Grammar (a, b)
+  SumG     :: (Transformable (Church a), HasChurch a, NatFoldable (Church a)) => Church a Grammar -> Grammar a
   IMap     :: (a -> b) -> (b -> a) -> Grammar a -> Grammar b
 
-productG :: 
+sumG :: 
   (Transformable (Church a), HasChurch a, NatFoldable (Church a)) 
   => Church a Grammar 
   -> Grammar a
-productG = ProductG
+sumG = SumG
 
 instance IsString (Grammar ()) where
   fromString = Terminal . Text.pack
@@ -88,8 +87,8 @@ parser :: Grammar a -> P a
 parser grm = case grm of
   Terminal t -> P.string t $> ()
   Simple txt pa ba -> pa 
-  SumG ga gb -> liftM2 (,) (parser ga) (parser gb)
-  ProductG d -> generateC (transform parser d)
+  ProductG ga gb -> liftM2 (,) (parser ga) (parser gb)
+  SumG d -> generateC (transform parser d)
   IMap ab ba ga -> ab <$> parser ga
 
 -- | We can pretty print a grammar
@@ -97,8 +96,8 @@ render :: Grammar a -> B a
 render grm = case grm of
   Terminal t   -> fromText t
   Simple n _ b -> b
-  SumG ga gb   -> Op \(a, b) -> liftM2 (<>) (getOp (render ga) a) (getOp (render gb) b)
-  ProductG d   -> Op $ interpC (transform render d)
+  ProductG ga gb   -> Op \(a, b) -> liftM2 (<>) (getOp (render ga) a) (getOp (render gb) b)
+  SumG d   -> Op $ interpC (transform render d)
   IMap _ ba (render -> fa) -> 
     contramap ba fa
 
@@ -107,18 +106,17 @@ prettyText = buildToText . render
 
 explain :: Grammar a -> Doc
 explain = \case
-  Terminal t -> D.string (Text.unpack t)
+  Terminal t -> D.squote <> D.string (Text.unpack t) <> D.squote
   Simple txt pa ba -> D.string (Text.unpack txt)
-  SumG ga gb -> explain ga <> explain gb
-  ProductG d -> foldN explain d
+  ProductG ga gb -> explain ga D.<+> explain gb
+  SumG d -> (D.encloseSep "(" ")" "|" $ foldN ((:[]) . explain) d)
   IMap ab ba ga -> explain ga
 
 explainText :: Grammar a -> Text
 explainText = Text.pack . flip displayS "" . renderCompact . explain
 
-
 untilG :: Text -> Char -> Grammar Text
-untilG name sep = Simple ("<" <> name <> ">" <> Text.singleton sep)
+untilG name sep = Simple ("<" <> name <> "> '" <> Text.singleton sep <> "'")
   (P.takeWhileP Nothing (/= sep) <* P.char sep) 
   (Op \txt -> if Text.all (/= sep) txt 
     then Right $ 
@@ -128,8 +126,11 @@ untilG name sep = Simple ("<" <> name <> ">" <> Text.singleton sep)
       ++ ", but it is ended by " ++ show sep ++ "."
   )
 
+restG :: Text -> Grammar Text
+restG name = Simple ("<" <> name <> ">") (P.takeRest) (Op $ Right . B.fromText)
+
 until1G :: Text -> Char -> Grammar Text
-until1G name sep = Simple ("<" <> name <> ">" <> Text.singleton sep) 
+until1G name sep = Simple ("<" <> name <> "> '" <> Text.singleton sep <> "'")
   (P.takeWhile1P Nothing (/= sep) <* P.char sep) 
   (Op \txt -> if
     | not (Text.all (/= sep) txt) ->
@@ -141,20 +142,32 @@ until1G name sep = Simple ("<" <> name <> ">" <> Text.singleton sep)
       Right $ B.fromText txt <> B.fromString [sep]
   )
 
+(...) = (.) . (.)
+
+(**) :: Grammar a -> Grammar b -> Grammar (a, b)
+(**) = ProductG 
+
+(**!) :: Grammar a -> Grammar () -> Grammar a
+(**!) = IMap (\(a, ()) -> a) (\a -> (a, ())) ... ProductG 
+
+(!**) :: Grammar () -> Grammar a -> Grammar a
+(!**) = IMap (\((), a) -> a) (\a -> ((), a)) ... ProductG 
+
+
 class Detuple a b | a -> b where
   detuple :: a -> b
 
 instance Detuple (Grammar a, Grammar b) (Grammar (a, b)) where
-  detuple (a, b) = SumG a b
+  detuple (a, b) = ProductG a b
 
 instance Detuple (Grammar a, Grammar b, Grammar c) (Grammar (a, b, c)) where
   detuple (a, b, c) = IMap 
     (\(a, (b, c)) -> (a, b, c))
     (\(a, b, c) -> (a, (b, c)))
-    (SumG a (SumG b c))
+    (ProductG a (ProductG b c))
 
 instance Detuple (Grammar a, Grammar b, Grammar c, Grammar d) (Grammar (a, b, c, d)) where
   detuple (a, b, c, d) = IMap 
     (\(a, (b, (c, d))) -> (a, b, c, d))
     (\(a, b, c, d) -> (a, (b, (c, d))))
-    (SumG a (SumG b (SumG c d)))
+    (ProductG a (ProductG b (ProductG c d)))

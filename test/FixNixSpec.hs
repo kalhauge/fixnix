@@ -8,6 +8,7 @@ module FixNixSpec where
 import Test.Hspec hiding (shouldBe)
 import Test.Hspec.Megaparsec
 import Test.Hspec.Expectations.Pretty
+import qualified Hedgehog.Gen as Gen
 
 import NeatInterpolation (text)
 
@@ -31,40 +32,28 @@ import FixNix
 import FixNix.Core
 import FixNix.Locations
 
-data WithCounterExample = 
-  WithCounterExample [String] SomeException 
-
-instance Show WithCounterExample where
-  show (WithCounterExample examples e@(SomeException ex)) = 
-    "Counter examples: " ++ "\n" ++
-      fold (L.zipWith (\i str -> " " ++ show i ++ ") " ++ str ++ "\n") [1..] examples)
-    ++ case fromException e of 
-         Just (HUnitFailure a reason) -> formatFailureReason reason
-         Nothing -> show (typeOf ex) ++ ": " ++ show ex 
-
-instance Exception WithCounterExample where
-
-counterexample :: HasCallStack => String -> IO a -> IO a
-counterexample str io = catches io
-  [ Handler (\(WithCounterExample strs e) -> throwIO (WithCounterExample (str:strs) e))
-  , Handler (\e -> throwIO (WithCounterExample [str] e)) 
-  ]
+import FixNix.GrammarSpec
 
 locationTypeSpec :: LocationType -> Spec
 locationTypeSpec (LocationType {..}) = describe (Text.unpack locTypeName) do
-  describe "parser" do
-    forM_ locTypeExamples \Example {..} ->  
-      it ("should succeed on " ++ show exampleIdentifier) do
-        parse locTypeParser "" `shouldSucceedOn` exampleIdentifier
+  describeGrammar 
+    (Text.unpack locTypeName)
+    locTypeGrammar
+    (map exampleIdentifier locTypeExamples)
+    Gen.discard
 
-  describe "parser-printer adjunction" do
-    forM_ locTypeExamples \Example {..} -> do
-      it ("should parse-pretty-parse on " ++ show exampleIdentifier) do
-        let Right a = parse locTypeParser "" exampleIdentifier
-        counterexample (show a) do
-          let target = finderIdentifier (locTypeFinder a)
-          counterexample (show target) do
-            parse locTypeParser "" target `shouldParse` a
+--     forM_ locTypeExamples \Example {..} ->  
+--       it ("should succeed on " ++ show exampleIdentifier) do
+--         parse locTypeParser "" `shouldSucceedOn` exampleIdentifier
+-- 
+--   describe "parser-printer adjunction" do
+--     forM_ locTypeExamples \Example {..} -> do
+--       it ("should parse-pretty-parse on " ++ show exampleIdentifier) do
+--         let Right a = parse locTypeParser "" exampleIdentifier
+--         counterexample (show a) do
+--           let target = finderIdentifier (locTypeFinder a)
+--           counterexample (show target) do
+--             parse locTypeParser "" target `shouldParse` a
 
 spec :: Spec
 spec = do
@@ -76,15 +65,15 @@ spec = do
       let 
         input = Location
           { locUrl = "hello"
-          , locName = "Here"
+          , locSuffix = Just "suffix"
           , locUnpack = True
           }
         output = [text|builtins.fetchTarball {
-          name   = "Here";
+          name   = "hello_suffix";
           url    = "hello";
           sha256 = "0000000000000000000000000000000000000000000000000000";
         }|]
-      renderLocation input zeroSha256 `shouldBe` output
+      renderLocation "hello" input zeroSha256 `shouldBe` output
 
   describe "description" do
     fs <- runIO (readFile "USAGE.txt")

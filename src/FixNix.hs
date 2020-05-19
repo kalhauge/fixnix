@@ -20,6 +20,7 @@ module FixNix where
 
 -- base 
 import           Data.Version
+import           Data.Maybe
 import           System.IO
 import           System.Environment
 
@@ -35,61 +36,69 @@ import qualified Data.Text.IO as Text
 import           Options.Applicative
 import qualified Options.Applicative.Help.Pretty as D
 
+-- megaparsec 
+import qualified Text.Megaparsec               as P
+import qualified Text.Megaparsec.Char          as P
+
 -- path
 import           Path
 
 -- fixnix
 import           Paths_fixnix
 import           FixNix.Core
+import           FixNix.Grammar
 import           FixNix.Locations
 
 data Config = Config
-  { cfgFixFile      :: !(Maybe (Path Rel File))
-  , cfgLocationFinder :: !LocationFinder
-  , cfgName           :: !(Maybe Text)
+  { cfgFixFolder      :: !(Path Rel Dir)
   , cfgUnpack         :: !Bool
   }
 
-data Commands 
-  = Print
+data Command 
+  = Print (Maybe Text, LocationFinder)
+  | Add   (Maybe Text, LocationFinder)
 
-readLocationFinder :: [LocationType] -> ReadM LocationFinder
+readLocationFinder :: [LocationType] -> ReadM (Maybe Text, LocationFinder)
 readLocationFinder ltps = eitherReader $ 
-  parseEither (anyLocationFinderP ltps) "LOCATION" . Text.pack
+  parseEither parser "LOCATION" . Text.pack
+ where
+   parser = liftA2 (,) parseName (anyLocationFinderP ltps)
+   parseName :: P (Maybe Text)
+   parseName = P.optional . P.try $ P.takeWhile1P Nothing (/= '=') <* P.char '='
+
+printCommand :: [LocationType] -> Mod CommandFields Command
+printCommand ltps = command "print" $
+  info p (progDesc "print the fix-file to stdout")
+ where
+  p = do
+    x <- argument (readLocationFinder ltps) $ 
+      metavar "LOCATION"
+      <> help "The location to download"
+    pure $ Print x
+
 
 parseConfig :: [LocationType] -> Parser Config
 parseConfig ltps = do
-  cfgLocationFinder <- argument (readLocationFinder ltps) $ 
-    metavar "LOCATION"
-    <> help "The location to download"
-
-  cfgName <- optional . strOption $
-    long "name"
-    <> metavar "NAME"
-    <> help "The name of the fix deriviation."
-  
-  cfgFixFile <- optional . option (maybeReader parseRelFile) $
+  cfgFixFolder <- option (maybeReader parseRelDir) $
     short 'o'
-    <> long "output"
+    <> long "fix-folder"
     <> hidden
-    <> metavar "FILE"
-    <> help "The relative path to the fix file."
+    <> value [reldir|nix/fix|]
+    <> metavar "FOLDER"
+    <> showDefault
+    <> help "The relative path to the fix folder."
   
-  cfgUnpack <- switch $
-    long "unpack"
-    <> short 'u'
-    <> help "Should the item be unpacked? (tar only)"
-    <> hidden
-
   pure $ Config 
-    { cfgFixFile
-    , cfgLocationFinder
-    , cfgName
-    , cfgUnpack
-    }
+      { cfgFixFolder
+      , cfgUnpack = True
+      }
 
-fixnixParserInfo :: [LocationType] -> ParserInfo Config 
-fixnixParserInfo ltps = info (parseConfig ltps <**> helper) $
+fixnixParserInfo :: [LocationType] -> ParserInfo (Config, Command)
+fixnixParserInfo ltps = info 
+    (((,) <$> parseConfig ltps <*> 
+      hsubparser (printCommand ltps)
+    ) <**> 
+    helper) $
   fullDesc
   <> header ("fixnix - a nix version fixer (version " ++ showVersion Paths_fixnix.version ++ ")")
   <> footerDoc (Just footer)
@@ -101,43 +110,42 @@ fixnixParserInfo ltps = info (parseConfig ltps <**> helper) $
     , D.vcat $ map (D.nest 2 . describeLocationType) ltps
     ]
 
--- | Run the io
-run :: IO ()
-run = do
-  Config {..} <- execParser $ fixnixParserInfo locations
-  
-  loc <- findLocation cfgLocationFinder
-
-  sha256 <- prefetchIO loc
-  print sha256
-  txt <- case sha256 of 
+fetchFixText :: (Maybe Text, LocationFinder) -> IO Text
+fetchFixText (name, finder) = do
+  loc <- findLocation finder
+  let basename = fromMaybe (finderBaseName finder) name
+  sha256 <- prefetchIO basename loc
+  case sha256 of 
     Nothing -> fail "Could not prefetch url."
     Just sha256 -> do 
       args <- getArgs
-      return $ renderFixNixExpr args loc sha256
-  case cfgFixFile of
-    Just fixfile -> do
-      writeDiff txt fixfile
-    Nothing -> 
-      Text.putStr txt
-
+      return $ renderFixNixExpr args basename loc sha256
  where 
-  renderFixNixExpr args loc sha256 = foldMap (<> "\n")
+  renderFixNixExpr args basename loc sha256 = foldMap (<> "\n")
     [ "# Auto-generated with fixnix (version " <> textVersion <> ")"
-    , "# fixnix " <> Text.unwords (map Text.pack args)
-    , renderLocation loc sha256
+    , "# " <> Text.unwords (map Text.pack args)
+    , renderLocation basename loc sha256
     ]
    where
     textVersion = Text.pack $ showVersion Paths_fixnix.version
 
-  writeDiff :: Text -> Path Rel File -> IO ()
-  writeDiff txt file = do
-    createDirectoryIfMissing True (fromRelDir $ parent file)
-    let filef = fromRelFile file
-    txt2 <- Text.readFile filef
-    case diffText True txt2 txt of 
-      Just msg -> hPutStr stderr msg
-      Nothing  -> return ()
+-- | Run the io
+run :: IO ()
+run = do
+  (cfg@Config {..}, cmd) <- execParser $ fixnixParserInfo locations
+  case cmd of 
+    Print x -> 
+      Text.putStr =<< fetchFixText x 
+
+-- where
+--  writeDiff :: Text -> Path Rel File -> IO ()
+--  writeDiff txt file = do
+--    createDirectoryIfMissing True (fromRelDir $ parent file)
+--    let filef = fromRelFile file
+--    txt2 <- Text.readFile filef
+--    case diffText True txt2 txt of 
+--      Just msg -> hPutStr stderr msg
+--      Nothing  -> return ()
 
 
 

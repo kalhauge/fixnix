@@ -54,11 +54,17 @@ import qualified Options.Applicative.Help.Pretty as D
 -- typed-process
 import           System.Process.Typed
 
+-- fixnix
+import FixNix.Grammar
+
 -- | A location is a url with a name
 data Location = Location 
-  { locName   :: Text
+  { locSuffix :: Maybe Text
+  -- ^ the suffix to add to the name
   , locUrl    :: Text
+  -- ^ the url of the location
   , locUnpack :: Bool
+  -- ^ whether the location should be unpacked
   } deriving (Show, Eq)
 
 
@@ -87,7 +93,7 @@ data LocationType = forall a. (Show a, Eq a) => LocationType
   -- ^ A documentation string
   , locTypeExamples      :: [ Example ]
   -- ^ A list of examples, that is both checked and presented to the user.
-  , locTypeParser        :: P a
+  , locTypeGrammar       :: Grammar a
   -- ^ A loc type printer-parser
   , locTypeFinder        :: a -> LocationFinder
   }
@@ -96,6 +102,8 @@ data LocationType = forall a. (Show a, Eq a) => LocationType
 describeLocationType :: LocationType -> Doc
 describeLocationType LocationType {..} = vcat
   [ hsep [ "*", ttext locTypeName, prefixList ]
+  , ""
+  , explain locTypeGrammar
   , ""
   , locTypeDocumentation
   , ""
@@ -116,13 +124,13 @@ describeLocationType LocationType {..} = vcat
   ]
  where 
   prefixList = encloseSep "(" ")" ", " (ttext <$> NE.toList locTypePrefix)
-  renderLocation l = case parseEither locTypeParser "LOCATION" l of 
+  renderLocation l = case parseEither (parser locTypeGrammar) "LOCATION" l of 
     Left msg -> string msg
-    Right a ->  case finderLocation (locTypeFinder a) of
+    Right (locTypeFinder -> finder) -> case finderLocation finder of
       Left _ -> "(unpure)"
-      Right Location {..} -> vsep 
+      Right loc@Location {..} -> vsep 
         [ "fetches: " <> ttext locUrl
-        , "name: " <> ttext locName
+        , "name: " <> ttext (locName (finderBaseName finder) loc)
         ]
 
 -- | An Example is an identifier and a some help text.
@@ -132,9 +140,6 @@ data Example = Example
   , exampleHelp       :: D.Doc
   -- ^ The help string to understand the example.
   }
-
--- | A simple parser
-type P = P.Parsec Void Text
 
 -- | A missing utility of Megaparsec.
 parseEither :: P a -> String -> Text -> Either String a
@@ -147,7 +152,7 @@ locationFinderP LocationType {..} = do
   P.label "location type" $ 
     msum [ P.string' prfx | prfx <- NE.toList locTypePrefix ]
   P.char ':'
-  locTypeFinder <$> locTypeParser
+  locTypeFinder <$> parser locTypeGrammar
 
 -- | Parse any of the locations
 anyLocationFinderP :: [LocationType] -> P LocationFinder
@@ -155,20 +160,25 @@ anyLocationFinderP =
   msum . map locationFinderP
 
 -- | Render a FetchUrl to Text.
-renderLocation :: Location -> Sha256 -> Text
-renderLocation Location {..} (sha256AsText -> sha256) =
+renderLocation :: Text -> Location -> Sha256 -> Text
+renderLocation name Location {..} (sha256AsText -> sha256) =
   [Neat.text|builtins.$fetcher {
-    name   = "$locName";
+    name   = "$locName'";
     url    = "$locUrl";
     sha256 = "$sha256";
   }|]
  where
+  locName' = name <> foldMap ("_" <>) locSuffix
   fetcher = if locUnpack then "fetchTarball" else "fetchurl"
+
+locName :: Text -> Location -> Text
+locName basename loc = 
+  basename <> foldMap ("_" <>) (locSuffix loc)
 
 -- | Prefetch a url, add it to the database and return a hash if it 
 -- succeeds.
-prefetchIO :: Location -> IO (Maybe Sha256)
-prefetchIO furl = do
+prefetchIO :: Text -> Location -> IO (Maybe Sha256)
+prefetchIO name furl = do
   (ec, out) <- readProcessStdout . proc "nix-prefetch-url" $
     prefetchArgs furl
   return $ case ec of 
@@ -179,7 +189,7 @@ prefetchIO furl = do
  where
   prefetchArgs Location {..} = Text.unpack <$> concat 
     [ [ "--unpack" | locUnpack ]
-    , [ "--name", locName ]
+    , [ "--name", locName name furl]
     , [ locUrl ]
     ]
 

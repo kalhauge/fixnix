@@ -1,6 +1,7 @@
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE OverloadedStrings #-}
@@ -16,6 +17,8 @@ module FixNix.Locations where
 
 -- base 
 import           Data.Foldable
+import           Control.Applicative
+import           Data.Functor.Contravariant
 import qualified Data.List.NonEmpty as NE
 import qualified Data.List as L
 
@@ -37,6 +40,8 @@ import           System.Process.Typed
 
 -- fixnix
 import FixNix.Core
+import FixNix.Grammar
+import FixNix.Grammar.Church
 
 -- * Locations
 locations :: [ LocationType ]
@@ -61,32 +66,29 @@ githubLocation = LocationType {..} where
         $ "Accesss the branch" D.</> "of a github page."
         D.</> "It will use" D.</> "`git ls-remote` to fix the current revision."
     ]
-  locTypeParser = do
-    gitHubOwner <- P.takeWhile1P Nothing ('/' /=)
-    P.char '/'
+  locTypeGrammar = 
+    detuple (until1G "git-owner" '/', until1G "git-repo" '/', gitCommitGrammar)
 
-    gitHubRepo <- P.takeWhile1P Nothing ('/' /=)
-    P.char '/'
-
-    commit <- gitCommitP
-
-    return (gitHubOwner, gitHubRepo, commit)
-
-  locTypeFinder (gitHubOwner, gitHubRepo, commit) = LocationFinder { .. }
+  locTypeFinder a@(gitHubOwner, gitHubRepo, commit) = LocationFinder { .. }
    where
-    finderIdentifier =
-      Text.intercalate "/" [ gitHubOwner, gitHubRepo, gitCommitToText commit ]
     finderBaseName = gitHubRepo
+    finderIdentifier = 
+      case prettyText locTypeGrammar a of
+        Right a   -> a
+        Left  msg -> error $ 
+          "Grammar for " <> Text.unpack locTypeName 
+          <> " is broken, please report!\n -  " <> msg
+
     finderUnpack   = True
     finderLocation = case commit of 
       GitTag tag -> Right $ Location
         { locUrl = baseUrl <> "/archive/" <> tag <> ".tar.gz"
-        , locName = finderBaseName <> "_" <> tag
+        , locSuffix = Just tag
         , locUnpack = finderUnpack
         }
       GitRevision rev -> Right $ Location
         { locUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
-        , locName = finderBaseName <> "_" <> rev
+        , locSuffix = Just rev
         , locUnpack = finderUnpack
         }
       GitBranch branch -> Left $ do
@@ -95,7 +97,7 @@ githubLocation = LocationType {..} where
         case L.uncons . LazyText.words $ LazyText.decodeUtf8 out of
           Just (LazyText.toStrict -> rev, _) -> return $ Location
             { locUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
-            , locName = finderBaseName <> "_" <> branch <> "_" <> (Text.take 6 rev)
+            , locSuffix = Just $ branch <> "_" <> (Text.take 6 rev)
             , locUnpack = finderUnpack
             }
           Nothing -> 
@@ -157,28 +159,40 @@ data GitCommit
   = GitBranch    !Text
   | GitTag       !Text
   | GitRevision  !Text
-  | GitWildCard  !Text
   deriving (Show, Eq)
+  --    | GitWildCard  !Text
 
-gitCommitP :: P GitCommit
-gitCommitP = msum 
-  [ GitTag      . Text.pack <$> do
-    _ <- P.string' "tags/"  P.<?> "\"tags/\" for tags"
-    P.someTill P.printChar P.eof P.<?> "a tag name"
+data GitCommitC f = GitCommitC 
+  { ifGitBranch   :: f Text
+  , ifGitTag      :: f Text
+  , ifGitRevision :: f Text
+  }
 
-  , GitBranch   . Text.pack <$> do
-    _ <- P.string' "heads/" P.<?> "\"heads/\" for branches"
-    P.someTill P.printChar P.eof P.<?> "a branch name"
+instance HasChurch GitCommit where
+  type Church GitCommit = GitCommitC
 
-  , GitRevision . Text.toLower . Text.pack <$> do
-    _ <- P.string' "rev/" P.<?> "\"rev/\" for revisions"
-    P.someTill P.hexDigitChar P.eof P.<?> "a revision"
-  ]
+  interpC GitCommitC {..} = \case
+    GitBranch t   -> getOp ifGitBranch t
+    GitTag t      -> getOp ifGitTag t
+    GitRevision t -> getOp ifGitRevision t
 
-gitCommitToText :: GitCommit -> Text
-gitCommitToText = \case
-  GitTag t      -> "tags/" <> t
-  GitBranch b   -> "heads/" <> b
-  GitRevision r -> "rev/" <> r
+  generateC GitCommitC {..} = 
+    (GitBranch <$> ifGitBranch) <|> (GitTag <$> ifGitTag) <|> (GitRevision <$> ifGitRevision)
 
 
+instance Transformable GitCommitC where
+  transform nat GitCommitC {..} = GitCommitC 
+    { ifGitBranch   = nat ifGitBranch
+    , ifGitTag      = nat ifGitTag
+    , ifGitRevision = nat ifGitRevision 
+    }
+
+instance NatFoldable GitCommitC where
+  foldN nat GitCommitC {..} = nat ifGitBranch <> nat ifGitTag <> nat ifGitRevision 
+
+gitCommitGrammar :: Grammar GitCommit
+gitCommitGrammar = sumG GitCommitC
+  { ifGitBranch = "heads/" !** restG "head"
+  , ifGitTag = "tags/" !** restG "tag" 
+  , ifGitRevision = "rev/" !** restG "rev"
+  }
