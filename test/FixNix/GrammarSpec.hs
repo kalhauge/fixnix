@@ -82,15 +82,18 @@ spec = do
   describeGrammar "github"
     (detuple (until1G "git-owner" '/', until1G "git-repo" '/'))
     [ "hello/world/" ]
-    ( liftM2 (,) (Gen.text (Range.linear 0 10) Gen.unicode) (Gen.text (Range.linear 0 10) Gen.unicode))
+    ( Just $ liftM2 (,) 
+      (Gen.text (Range.linear 0 10) Gen.unicode) 
+      (Gen.text (Range.linear 0 10) Gen.unicode)
+    )
 
   describeGrammar "enumeration" 
     enumerationG
     [ "one" , "two" , "three" ]
-    ( Gen.element [ One, Two, Three ] )
+    ( Just $ Gen.element [ One, Two, Three ] )
 
-describeGrammar :: (Eq a, Show a) => String -> Grammar a -> [ Text ] -> Gen a -> Spec
-describeGrammar name grm examples generator = describe ("Grammar " <> name) do
+describeGrammar :: (Eq a, Show a) => String -> Grammar a -> [ Text ] -> (Maybe (Gen a)) -> Spec
+describeGrammar name grm examples mgenerator = describe ("Grammar " <> name) do
   describe "examples" do
     forM_ examples \from -> do
       it ("should parse " ++ Text.unpack from) do
@@ -104,13 +107,15 @@ describeGrammar name grm examples generator = describe ("Grammar " <> name) do
                 parse (parser grm) "" target `shouldParse` a
             Left a -> 
               fail a
-  describe "adjunction" do
-    it "should be able to pretty-render-pretty" . hedgehog $ do
-      a <- forAll generator
-      case prettyText grm a of
-        Left msg -> return ()
-        Right b  -> do
-          parse (parser grm) "grammar" b === Right a
+  case mgenerator of 
+    Nothing -> return ()
+    Just generator -> describe "adjunction" do
+      it "should be able to pretty-render-pretty" . hedgehog $ do
+        a <- forAll generator
+        case prettyText grm a of
+          Left msg -> return ()
+          Right b  -> do
+            parse (parser grm) "grammar" b === Right a
 
 
   -- describe "parser" do 

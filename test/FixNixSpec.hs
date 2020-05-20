@@ -40,7 +40,7 @@ locationTypeSpec (LocationType {..}) = describe (Text.unpack locTypeName) do
     (Text.unpack locTypeName)
     locTypeGrammar
     (map exampleIdentifier locTypeExamples)
-    Gen.discard
+    Nothing
 
 --     forM_ locTypeExamples \Example {..} ->  
 --       it ("should succeed on " ++ show exampleIdentifier) do
