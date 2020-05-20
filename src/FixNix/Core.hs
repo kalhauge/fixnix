@@ -67,7 +67,6 @@ data Location = Location
   -- ^ whether the location should be unpacked
   } deriving (Show, Eq)
 
-
 -- | A location finder either knows the location of the data, or knows 
 -- how to find the location.
 data LocationFinder  = LocationFinder 
