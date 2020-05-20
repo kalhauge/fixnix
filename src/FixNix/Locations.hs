@@ -93,7 +93,7 @@ githubLocation = LocationType {..} where
         }
       GitBranch branch -> Left $ do
         out <- readProcessStdout_
-          $ proc "git" ["ls-remote", Text.unpack finderBaseName, Text.unpack branch]
+          $ proc "git" ["ls-remote", Text.unpack baseUrl, Text.unpack branch]
         case L.uncons . LazyText.words $ LazyText.decodeUtf8 out of
           Just (LazyText.toStrict -> rev, _) -> return $ Location
             { locUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
