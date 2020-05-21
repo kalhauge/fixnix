@@ -88,8 +88,8 @@ instance HasChurch LocationMode where
 
   generateC LocationModeC {..} = 
     ifDownload $> Download 
-    <|> ifUnpack $> Unpack 
     <|> ifImport $> Import
+    <|> ifUnpack $> Unpack 
 
 
 instance Transformable LocationModeC where
@@ -201,7 +201,9 @@ finderG ltps =
   anyLocationG :: Grammar LocationFinder
   anyLocationG = anyG 
     [ case tp of 
-        LocationType {..} -> IMap locTypeFinder undefined $ locTypeGrammar 
+        LocationType {..} -> 
+          anyG [ Terminal t | t <- NE.toList locTypePrefix ] !** ":" 
+            !** (IMap locTypeFinder undefined $ locTypeGrammar)
     | tp <- ltps
     ]
 

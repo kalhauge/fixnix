@@ -1,11 +1,10 @@
 # Locations
 A location is parsed like this:
 
-    (<name> '='|'') (('?'|'!'|'!!')
-                    |'') (<git-owner> '/' <git-repo> '/' ('heads/' <head>
-                                                         |'tags/' <tag>
-                                                         |'rev/' <rev>)
-                         |or fail)
+    (<name> '='|'') (('?'|'!'|'!!')|'') ('github'
+                                        |'gh') ':' <git-owner> '/' <git-repo> '/' ('heads/' <head>
+                                                                                  |'tags/' <tag>
+                                                                                  |'rev/' <rev>)
 
 Below is a list of defined locations. If the list is incomplete please
 file a bug report to https://github.com/kalhauge/fixnix.

@@ -168,6 +168,7 @@ maybeG ifJust ifNothing = sumG MaybeC {..}
 -- Given an non-empty list of grammars combine them into one
 anyG :: [Grammar a] -> Grammar a
 anyG = \case 
+  [a] -> a
   a:as -> ChooseG $ sumG EitherC 
     { ifLeft = a
     , ifRight = anyG as
