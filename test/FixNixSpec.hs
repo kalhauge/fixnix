@@ -65,15 +65,29 @@ spec = do
       let 
         input = Location
           { locUrl = "hello"
-          , locSuffix = Just "suffix"
-          , locUnpack = True
+          , locName = "name"
+          , locMode = Unpack
           }
         output = [text|builtins.fetchTarball {
-          name   = "hello_suffix";
+          name   = "name";
           url    = "hello";
           sha256 = "0000000000000000000000000000000000000000000000000000";
         }|]
-      renderLocation "hello" input zeroSha256 `shouldBe` output
+      renderLocation input zeroSha256 `shouldBe` output
+
+    it "should also support printing" do
+      let 
+        input = Location
+          { locUrl = "hello"
+          , locName = "name"
+          , locMode = Import
+          }
+        output = [text|import (builtins.fetchTarball {
+          name   = "name";
+          url    = "hello";
+          sha256 = "0000000000000000000000000000000000000000000000000000";
+        })|]
+      renderLocation input zeroSha256 `shouldBe` output
 
   describe "description" do
     fs <- runIO (readFile "USAGE.txt")

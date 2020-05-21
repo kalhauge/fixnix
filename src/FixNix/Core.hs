@@ -57,30 +57,58 @@ import           System.Process.Typed
 -- fixnix
 import FixNix.Grammar
 
+data LocationMode 
+  = Download 
+  -- ^ Download the location
+  | Unpack
+  -- ^ Download and unpack the location
+  | Import
+  -- ^ Download, Unpack, and import the location
+  deriving (Show, Eq, Ord, Enum, Bounded)
+
 -- | A location is a url with a name
 data Location = Location 
-  { locSuffix :: Maybe Text
+  { locName :: !Text
   -- ^ the suffix to add to the name
-  , locUrl    :: Text
+  , locUrl  :: !Text
   -- ^ the url of the location
-  , locUnpack :: Bool
-  -- ^ whether the location should be unpacked
+  , locMode :: !LocationMode
+  -- ^ what mode of download is needed
+  } deriving (Show, Eq)
+
+-- | A location builder is enough to build a location
+data LocationBuilder = LocationBuilder
+  { locBSuffix :: !(Maybe Text)
+  -- ^ the suffix to add to the name
+  , locBUrl    :: !Text
+  -- ^ the url of the location
   } deriving (Show, Eq)
 
 -- | A location finder either knows the location of the data, or knows 
 -- how to find the location.
 data LocationFinder  = LocationFinder 
-  { finderIdentifier :: Text
+  { finderIdentifier :: !Text
     -- ^ The identifier of the location finder
-  , finderBaseName :: Text
+  , finderBaseName :: !Text
     -- ^ The base name of the location, can be used to find filenames.
-  , finderLocation :: Either (IO Location) Location
+  , finderLocationMode   :: !LocationMode
+    -- ^ If the finder should be unpack
+  , finderLocation :: Either (IO LocationBuilder) LocationBuilder
     -- ^ The url of the location, might need an impure computation.
   }
 
 -- | Find a location
+buildLocation :: LocationFinder -> LocationBuilder -> Location
+buildLocation LocationFinder {..} LocationBuilder {..} = Location
+  { locName   = finderBaseName <> foldMap ("_" <>) locBSuffix 
+  , locUrl    = locBUrl
+  , locMode = finderLocationMode
+  }
+
+-- | Find a location
 findLocation :: LocationFinder -> IO Location
-findLocation = either id return . finderLocation
+findLocation lf = fmap (buildLocation lf) . either id return $ 
+  finderLocation lf
 
 -- | To define an new location type we use this data structure.
 data LocationType = forall a. (Show a, Eq a) => LocationType
@@ -127,9 +155,10 @@ describeLocationType LocationType {..} = vcat
     Left msg -> string msg
     Right (locTypeFinder -> finder) -> case finderLocation finder of
       Left _ -> "(unpure)"
-      Right loc@Location {..} -> vsep 
-        [ "fetches: " <> ttext locUrl
-        , "name: " <> ttext (locName (finderBaseName finder) loc)
+      Right (buildLocation finder -> Location {..}) -> vsep 
+        [ "fetches:" <+> ttext locUrl
+        , "name:" <+> ttext locName
+        , "do:" <+> D.string (show locMode)
         ]
 
 -- | An Example is an identifier and a some help text.
@@ -159,27 +188,24 @@ anyLocationFinderP =
   msum . map locationFinderP
 
 -- | Render a FetchUrl to Text.
-renderLocation :: Text -> Location -> Sha256 -> Text
-renderLocation name Location {..} (sha256AsText -> sha256) =
-  [Neat.text|builtins.$fetcher {
-    name   = "$locName'";
+renderLocation :: Location -> Sha256 -> Text
+renderLocation Location {..} (sha256AsText -> sha256) =
+  [Neat.text|${importStart}builtins.$fetcher {
+    name   = "$locName";
     url    = "$locUrl";
     sha256 = "$sha256";
-  }|]
+  }${importEnd}|]
  where
-  locName' = name <> foldMap ("_" <>) locSuffix
-  fetcher = if locUnpack then "fetchTarball" else "fetchurl"
-
-locName :: Text -> Location -> Text
-locName basename loc = 
-  basename <> foldMap ("_" <>) (locSuffix loc)
+  importStart = if locMode >= Import then "import (" else ""
+  importEnd   = if locMode >= Import then ")" else ""
+  fetcher = if locMode >= Unpack then "fetchTarball" else "fetchurl"
 
 -- | Prefetch a url, add it to the database and return a hash if it 
 -- succeeds.
-prefetchIO :: Text -> Location -> IO (Maybe Sha256)
-prefetchIO name furl = do
+prefetchIO :: Location -> IO (Maybe Sha256)
+prefetchIO loc = do
   (ec, out) <- readProcessStdout . proc "nix-prefetch-url" $
-    prefetchArgs furl
+    prefetchArgs loc
   return $ case ec of 
     ExitSuccess   -> 
       Just (Sha256 . LazyText.toStrict . LazyText.strip $ LazyText.decodeUtf8 out)
@@ -187,8 +213,8 @@ prefetchIO name furl = do
       Nothing
  where
   prefetchArgs Location {..} = Text.unpack <$> concat 
-    [ [ "--unpack" | locUnpack ]
-    , [ "--name", locName name furl]
+    [ [ "--unpack" | locMode >= Unpack ]
+    , [ "--name", locName ]
     , [ locUrl ]
     ]
 

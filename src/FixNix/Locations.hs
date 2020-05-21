@@ -79,26 +79,23 @@ githubLocation = LocationType {..} where
           "Grammar for " <> Text.unpack locTypeName 
           <> " is broken, please report!\n -  " <> msg
 
-    finderUnpack   = True
+    finderLocationMode   = Unpack
     finderLocation = case commit of 
-      GitTag tag -> Right $ Location
-        { locUrl = baseUrl <> "/archive/" <> tag <> ".tar.gz"
-        , locSuffix = Just tag
-        , locUnpack = finderUnpack
+      GitTag tag -> Right $ LocationBuilder
+        { locBUrl = baseUrl <> "/archive/" <> tag <> ".tar.gz"
+        , locBSuffix = Just tag
         }
-      GitRevision rev -> Right $ Location
-        { locUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
-        , locSuffix = Just rev
-        , locUnpack = finderUnpack
+      GitRevision rev -> Right $ LocationBuilder
+        { locBUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
+        , locBSuffix = Just rev
         }
       GitBranch branch -> Left $ do
         out <- readProcessStdout_
           $ proc "git" ["ls-remote", Text.unpack baseUrl, Text.unpack branch]
         case L.uncons . LazyText.words $ LazyText.decodeUtf8 out of
-          Just (LazyText.toStrict -> rev, _) -> return $ Location
-            { locUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
-            , locSuffix = Just $ branch <> "_" <> (Text.take 6 rev)
-            , locUnpack = finderUnpack
+          Just (LazyText.toStrict -> rev, _) -> return $ LocationBuilder
+            { locBUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
+            , locBSuffix = Just $ branch <> "_" <> (Text.take 6 rev)
             }
           Nothing -> 
             fail $ "Could not find branch: " ++ Text.unpack branch

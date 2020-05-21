@@ -116,7 +116,6 @@ listCommand :: [LocationType] -> Mod CommandFields Command
 listCommand ltps = command "list" $
   info (pure $ ListLocations) (progDesc "list the locations and their formats")
 
-
 parseConfig :: [LocationType] -> Parser Config
 parseConfig ltps = do
   cfgFixFolder <- option (maybeReader parseRelDir) $
@@ -127,10 +126,10 @@ parseConfig ltps = do
     <> metavar "FOLDER"
     <> showDefault
     <> help "The relative path to the fix folder."
-  
+
   pure $ Config 
-      { cfgFixFolder
-      }
+    { cfgFixFolder
+    }
 
 fixnixParserInfo :: [LocationType] -> ParserInfo (Config, Command)
 fixnixParserInfo ltps = info 
@@ -151,20 +150,20 @@ listLocations ltps = D.putDoc $ D.vsep
   , D.vcat $ map (D.nest 2 . describeLocationType) ltps
   ]
 
-fetchFixText :: Text -> LocationFinder -> IO Text
-fetchFixText basename finder = do
+fetchFixText :: LocationFinder -> IO Text
+fetchFixText finder = do
   loc <- findLocation finder
-  sha256 <- prefetchIO basename loc
+  sha256 <- prefetchIO loc
   case sha256 of 
     Nothing -> fail "Could not prefetch url."
     Just sha256 -> do 
       args <- getArgs
-      return $ renderFixNixExpr args basename loc sha256
+      return $ renderFixNixExpr args loc sha256
  where 
-  renderFixNixExpr args basename loc sha256 = foldMap (<> "\n")
+  renderFixNixExpr args loc sha256 = foldMap (<> "\n")
     [ "# Auto-generated with fixnix (version " <> textVersion <> ")"
     , "# " <> Text.unwords (map Text.pack args)
-    , renderLocation basename loc sha256
+    , renderLocation loc sha256
     ]
    where
     textVersion = Text.pack $ showVersion Paths_fixnix.version
@@ -175,11 +174,11 @@ run = do
   (cfg@Config {..}, cmd) <- execParser $ fixnixParserInfo locations
   case cmd of 
     Print x -> do
-      txt <- fetchFixText (cfgBaseName x) (cfgLocationFinder x)
+      txt <- fetchFixText (cfgLocationFinder x)
       Text.putStr txt
     Add xs -> do
       forM_ xs $ \x -> do
-        txt <- fetchFixText (cfgBaseName x) (cfgLocationFinder x)
+        txt <- fetchFixText (cfgLocationFinder x)
         writeDiff txt (cfgFilename cfg x)
     ListLocations -> 
       listLocations locations

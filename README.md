@@ -34,4 +34,4 @@ Now run fixnix, the default behaviour is to fix a version of nixpkgs.
       - 'rev/<rev>'      where <rev> is a git revision
 
 
-
+- Add E-Tag support: See [wiki](https://en.wikipedia.org/wiki/HTTP_ETag)
