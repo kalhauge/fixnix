@@ -25,6 +25,7 @@ import           Data.Function
 import           Data.Functor
 import           Control.Monad
 import           System.IO
+import           System.IO.Error
 import           System.Environment
 
 -- directory
@@ -176,26 +177,28 @@ run = do
   writeDiff txt file = do
     createDirectoryIfMissing True (fromRelDir $ parent file)
     let filef = fromRelFile file
-    txt2 <- Text.readFile filef
-    case diffText True txt2 txt of 
-      Just msg -> do 
-        hPutStr stderr ("Found a file in " <> show file)
-        hPutStr stderr msg
-        confirm "Can I override this file?" do
-          Text.writeFile filef txt
-
-      Nothing  -> 
-        return ()
+    tryIOError (Text.readFile filef) >>= \case
+      Left _ -> 
+        hPutStrLn stderr "A new file."
+      Right txt2 -> case diffText True txt2 txt of 
+        Just msg -> do 
+          hPutStrLn stderr ("Found a file in " <> show file)
+          hPutStr stderr msg
+          confirm "Can I override this file?" do
+            Text.writeFile filef txt
+        Nothing  -> 
+          return ()
 
   confirm :: String -> IO () -> IO ()
   confirm help dothis = do
-    hPutStr stderr (help ++ " [yes/no]")
+    hPutStr stderr (help ++ " [yes/no]: ")
     fix $ \rec -> do
       answer <- Text.strip . Text.toLower <$> Text.getLine
       case answer of
         "yes" -> dothis
         "no" -> return ()
         _ -> hPutStr stderr ("Please answer yes or no.") *> rec
+    hPutStrLn stderr ""
 
 
 
