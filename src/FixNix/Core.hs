@@ -91,7 +91,6 @@ instance HasChurch LocationMode where
     <|> ifImport $> Import
     <|> ifUnpack $> Unpack 
 
-
 instance Transformable LocationModeC where
   transform nat LocationModeC {..} = LocationModeC
     { ifDownload = nat ifDownload
@@ -189,7 +188,7 @@ finderG ltps =
     }
 
   locationModeG :: Grammar (Maybe LocationMode)
-  locationModeG = sumG MaybeC 
+  locationModeG = Group "mode" "the download mode of the location" $ sumG MaybeC 
     { ifJust = sumG LocationModeC
       { ifDownload = "?"
       , ifUnpack   = "!"
@@ -202,7 +201,9 @@ finderG ltps =
   anyLocationG = anyG 
     [ case tp of 
         LocationType {..} -> 
-          anyG [ Terminal t | t <- NE.toList locTypePrefix ] !** ":" 
+          Group "prefix" "the location prefix" 
+            (anyG [ Terminal t | t <- NE.toList locTypePrefix ])
+          !** ":" 
             !** (IMap locTypeFinder undefined $ locTypeGrammar)
     | tp <- ltps
     ]
@@ -213,7 +214,7 @@ describeLocationType :: LocationType -> Doc
 describeLocationType LocationType {..} = vcat
   [ hsep [ "##", ttext locTypeName, prefixList ]
   , ""
-  , indent 4 $ explain locTypeGrammar
+  , indent 4 $ explainGrammar locTypeGrammar
   , ""
   , locTypeDocumentation
   , ""

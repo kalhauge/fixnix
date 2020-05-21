@@ -187,7 +187,7 @@ instance NatFoldable GitCommitC where
   foldN nat GitCommitC {..} = nat ifGitBranch <> nat ifGitTag <> nat ifGitRevision 
 
 gitCommitGrammar :: Grammar GitCommit
-gitCommitGrammar = sumG GitCommitC
+gitCommitGrammar = Group "git-commit" "a git commit" $ sumG GitCommitC
   { ifGitBranch = "heads/" !** restG "head"
   , ifGitTag = "tags/" !** restG "tag" 
   , ifGitRevision = "rev/" !** restG "rev"

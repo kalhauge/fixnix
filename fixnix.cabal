@@ -28,6 +28,7 @@ library
                   , Diff
                   , directory
                   , megaparsec
+                  , mtl
                   , neat-interpolation
                   , optparse-applicative
                   , path

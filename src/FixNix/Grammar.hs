@@ -38,6 +38,9 @@ import           Data.Functor.Contravariant
 import           Control.Monad
 import           Control.Applicative
 
+-- mtl
+import           Control.Monad.Writer
+
 -- text
 import qualified Data.Text                     as Text
 import qualified Data.Text.Lazy                as LazyText
@@ -71,6 +74,7 @@ buildToText (Op fa) =
 data Grammar a where
   Terminal :: Text -> Grammar ()
   Simple   :: Text -> P a -> B a -> Grammar a
+  Group    :: Text -> Doc -> Grammar a -> Grammar a
   ProductG :: Grammar a -> Grammar b -> Grammar (a, b)
   ChooseG  :: Grammar (Either a a) -> Grammar a
   SumG     :: (Transformable (Church a), HasChurch a, NatFoldable (Church a)) 
@@ -90,6 +94,7 @@ instance IsString (Grammar ()) where
 parser :: Grammar a -> P a
 parser grm = case grm of
   Terminal t -> P.string t $> ()
+  Group _ _ a -> parser a
   Simple txt pa ba -> pa 
   ProductG ga gb -> liftM2 (,) (parser ga) (parser gb)
   SumG d -> generateC (transform parser d)
@@ -101,6 +106,8 @@ render :: Grammar a -> B a
 render grm = case grm of
   Terminal t -> 
     fromText t
+  Group _ _ a -> 
+    render a
   Simple n _ b -> 
     b
   ProductG ga gb -> 
@@ -119,18 +126,38 @@ render grm = case grm of
 prettyText :: Grammar a -> a -> Either String Text
 prettyText = buildToText . render 
 
-explain :: Grammar a -> Doc
+explain :: Grammar a -> Writer [(Text, Doc)] Doc
 explain = \case
-  Terminal t -> D.squote <> D.string (Text.unpack t) <> D.squote
-  Simple txt pa ba -> D.string (Text.unpack txt)
-  ProductG ga gb -> explain ga D.<+> explain gb
+  Terminal t -> return $ D.squote <> D.string (Text.unpack t) <> D.squote
+  Simple txt pa ba -> return $ D.string (Text.unpack txt)
+  ProductG ga gb -> liftM2 (D.</>) (explain ga) (explain gb)
   ChooseG ga -> explain ga
-  SumG d -> (D.encloseSep "(" ")" "|" $ foldN ((:[]) . explain) d)
+  Group t d ga -> do
+    doc <- explain ga
+    tell [(t, d <> ":" <$$> doc)]
+    return $ "<" <> D.string (Text.unpack t) <> ">"
+  SumG d -> do
+    hl <- sequence (foldN (\g -> [explain g]) d)
+    return $ D.encloseSep "(" ")" "|" hl
   IMap ab ba ga -> explain ga
+
+explainGrammar :: Grammar a -> Doc
+explainGrammar g = 
+  vsep 
+  [ nest 4 $ doc 
+  , ""
+  , "where" 
+  , indent 2 $ vsep 
+    [ vsep [ "" , nest 4 $ "<" <> D.string (Text.unpack lt) <> ">" <+> "is" D.</> doc']
+    | (lt, doc') <- contex
+    ]
+  ]
+ where
+   (doc, contex) = runWriter $ explain g
 
 explainText :: Grammar a -> Text
 explainText = 
-  Text.pack . flip displayS "" . renderPretty 0.9 80 . explain
+  Text.pack . flip displayS "" . renderPretty 0.9 80 . explainGrammar
 
 untilG :: Text -> Char -> Grammar Text
 untilG name sep = Simple ("<" <> name <> "> '" <> Text.singleton sep <> "'")

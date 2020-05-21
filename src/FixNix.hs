@@ -131,7 +131,7 @@ listLocations ltps = Text.pack . flip D.displayS "" . D.renderPretty 0.9 80 $ D.
   [ "# Locations"
   , "A location is parsed like this:"
   , ""
-  , D.indent 4 $ explain (finderG ltps)
+  , D.indent 4 $ explainGrammar (finderG ltps)
   , ""
   , "Below is a list of defined locations." D.</> "If the list is incomplete" D.</> "please" 
     D.</> "file a bug report to https://github.com/kalhauge/fixnix."
