@@ -130,7 +130,7 @@ explain = \case
 
 explainText :: Grammar a -> Text
 explainText = 
-  Text.pack . flip displayS "" . renderPretty 0.4 80 . explain
+  Text.pack . flip displayS "" . renderPretty 0.9 80 . explain
 
 untilG :: Text -> Char -> Grammar Text
 untilG name sep = Simple ("<" <> name <> "> '" <> Text.singleton sep <> "'")

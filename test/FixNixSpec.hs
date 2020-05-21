@@ -115,8 +115,8 @@ spec = do
           fail "Expected failure"
   
   describe "locations" do
-    fs <- runIO (readFile "LOCATIONS.md")
-    it "should equal the description in LOCATIONS.txt" do
+    fs <- runIO (readFile "LOCATION.md")
+    it "should equal the description in LOCATION.md" do
       listLocations locations `shouldBe` (Text.pack fs)
 
   describe "util functions" do

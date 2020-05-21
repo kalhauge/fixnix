@@ -211,20 +211,22 @@ describeLocationType :: LocationType -> Doc
 describeLocationType LocationType {..} = vcat
   [ hsep [ "##", ttext locTypeName, prefixList ]
   , ""
-  , explain locTypeGrammar
+  , indent 4 $ explain locTypeGrammar
   , ""
   , locTypeDocumentation
   , ""
-  , "Examples:"
+  , "### Examples:"
   , ""
   , vsep $ 
-    [ nest 2 . vsep $
-      [ hsep 
-        [ "$", "fixnix", ttext (NE.head locTypePrefix) <> ":" <> ttext l ]
+    [ vsep 
+      [ e
       , ""
-      , renderLocation l
-      , ""
-      , e
+      , indent 4 . vsep $
+        [ hsep 
+          [ "$", "fixnix", ttext (NE.head locTypePrefix) <> ":" <> ttext l ]
+        , ""
+        , renderLocation l
+        ]
       , ""
       ]
     | Example l e <- locTypeExamples
@@ -331,3 +333,6 @@ diffText useColor from to = case getGroupedDiff (Text.lines from) (Text.lines to
 
 ttext :: Text -> Doc
 ttext = D.text . Text.unpack
+
+paragraph :: Text -> Doc
+paragraph = D.fillSep . map ttext . Text.words

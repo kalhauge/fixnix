@@ -63,8 +63,7 @@ githubLocation = LocationType {..} where
     , Example "nixos/nixpkgs/rev/1234abcd" 
         "Accesss the revision of a github page."
     , Example "nixos/nixpkgs/heads/nixpkgs-20.03" 
-        $ "Accesss the branch" D.</> "of a github page."
-        D.</> "It will use" D.</> "`git ls-remote` to fix the current revision."
+        $ paragraph "Accesss the branch of a github page. It will use `git ls-remote` to fix the current revision."
     ]
   locTypeGrammar = 
     detuple (until1G "git-owner" '/', until1G "git-repo" '/', gitCommitGrammar)

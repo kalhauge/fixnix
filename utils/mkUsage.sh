@@ -18,3 +18,22 @@ else
   echo "No difference."
   rm new-USAGE.txt
 fi
+
+NEW_FILE=new-LOCATION.md
+OLD_FILE=LOCATION.md 
+fixnix list > $NEW_FILE
+diff -u $OLD_FILE $NEW_FILE
+if [[ "$?" != "0" ]];
+then
+  read -p "Are you sure? " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]
+  then
+    mv $NEW_FILE $OLD_FILE
+  else
+    rm $NEW_FILE
+  fi
+else
+  echo "No difference."
+  rm $NEW_FILE
+fi
