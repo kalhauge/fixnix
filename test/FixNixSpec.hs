@@ -31,6 +31,7 @@ import Test.HUnit.Lang
 import FixNix
 import FixNix.Core
 import FixNix.Locations
+import FixNix.Grammar
 
 import FixNix.GrammarSpec
 
@@ -88,6 +89,18 @@ spec = do
           sha256 = "0000000000000000000000000000000000000000000000000000";
         })|]
       renderLocation input zeroSha256 `shouldBe` output
+  
+  describe "locations" do
+    let 
+      itShouldSucceedOn p = it ("should parse " <> show p) do
+        parse (parser (finderG locations)) "LOCATION" `shouldSucceedOn` p
+
+    itShouldSucceedOn "name=github:nixos/nixpkgs/tags/20.03"
+    itShouldSucceedOn "name=!github:nixos/nixpkgs/tags/20.03"
+    itShouldSucceedOn "name=?github:nixos/nixpkgs/tags/20.03"
+    itShouldSucceedOn "name=!!github:nixos/nixpkgs/tags/20.03"
+    itShouldSucceedOn "!!github:nixos/nixpkgs/tags/20.03"
+    itShouldSucceedOn "github:nixos/nixpkgs/tags/20.03"
 
   describe "description" do
     fs <- runIO (readFile "USAGE.txt")
@@ -100,6 +113,11 @@ spec = do
           s `shouldBe` ExitSuccess
         _ -> 
           fail "Expected failure"
+  
+  describe "locations" do
+    fs <- runIO (readFile "LOCATIONS.md")
+    it "should equal the description in LOCATIONS.txt" do
+      listLocations locations `shouldBe` (Text.pack fs)
 
   describe "util functions" do
     describe "diffText" do

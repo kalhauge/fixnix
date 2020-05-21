@@ -56,68 +56,50 @@ data Config = Config
   { cfgFixFolder      :: !(Path Rel Dir)
   }
 
-data LocationConfig = LocationConfig
-  { cfgUserDefinedBaseName :: Maybe Text
-  , cfgLocationFinder :: LocationFinder
-  , cfgUnpack :: Maybe Bool
-  }
-
-cfgBaseName :: LocationConfig -> Text
-cfgBaseName LocationConfig {..} = 
-  fromMaybe (finderBaseName cfgLocationFinder) cfgUserDefinedBaseName
-
-cfgFilename :: Config -> LocationConfig -> Path Rel File
-cfgFilename Config {..} lc@LocationConfig {..} = 
+cfgFilename :: Config -> LocationFinder -> Path Rel File
+cfgFilename Config {..} lc@LocationFinder {..} = 
   case parseRelFile filename of
    Just rf -> cfgFixFolder </> rf
    Nothing -> error ("Bad base name " ++ filename)
  where 
-  filename = Text.unpack $ cfgBaseName lc <> ".nix"
+  filename = Text.unpack $ finderBaseName <> ".nix"
 
 data Command 
-  = Print LocationConfig
-  | Add   [LocationConfig]
+  = Print LocationFinder
+  | Add   [LocationFinder]
   | ListLocations
 
-readLocationFinder :: [LocationType] -> ReadM LocationConfig
-readLocationFinder ltps = eitherReader $ 
-  parseEither parser "LOCATION" . Text.pack
- where
-   parser = do
-     cfgUserDefinedBaseName <- parseName
-     cfgUnpack <- optional (msum [ P.string "!" $> True, P.string "!!" $> False ])
-     cfgLocationFinder <- anyLocationFinderP ltps
-     pure $ LocationConfig {..}
-   parseName :: P (Maybe Text)
-   parseName = P.optional . P.try $ P.takeWhile1P Nothing (/= '=') <* P.char '='
+readLocationFinder :: Grammar LocationFinder -> ReadM LocationFinder
+readLocationFinder grm = eitherReader $ 
+  parseEither (parser grm) "LOCATION" . Text.pack
 
-argLocation :: [LocationType] -> Parser LocationConfig
-argLocation ltps = argument (readLocationFinder ltps) $ 
+argLocation :: Grammar LocationFinder -> Parser LocationFinder
+argLocation grm = argument (readLocationFinder grm) $ 
   metavar "LOCATION"
   <> help "The location to download (see 'fixnix list)"
 
-printCommand :: [LocationType] -> Mod CommandFields Command
-printCommand ltps = command "print" $
+printCommand :: Grammar LocationFinder -> Mod CommandFields Command
+printCommand grm = command "print" $
   info p (progDesc "print the fix-file to stdout")
  where
   p = do
-    x <- argLocation ltps
+    x <- argLocation grm
     pure $ Print x
 
-addCommand :: [LocationType] -> Mod CommandFields Command
-addCommand ltps = command "add" $
+addCommand :: Grammar LocationFinder -> Mod CommandFields Command
+addCommand grm = command "add" $
   info p (progDesc "add/override fix-file(s) to the fix-folder")
  where
   p = do
-    x <- many $ argLocation ltps
+    x <- many $ argLocation grm
     pure $ Add x
 
 listCommand :: [LocationType] -> Mod CommandFields Command
 listCommand ltps = command "list" $
   info (pure $ ListLocations) (progDesc "list the locations and their formats")
 
-parseConfig :: [LocationType] -> Parser Config
-parseConfig ltps = do
+parseConfig :: Parser Config
+parseConfig = do
   cfgFixFolder <- option (maybeReader parseRelDir) $
     short 'o'
     <> long "fix-folder"
@@ -133,21 +115,26 @@ parseConfig ltps = do
 
 fixnixParserInfo :: [LocationType] -> ParserInfo (Config, Command)
 fixnixParserInfo ltps = info 
-    (((,) <$> parseConfig ltps <*> 
-      hsubparser (printCommand ltps <> addCommand ltps <> listCommand ltps)
+    (((,) <$> parseConfig <*> 
+      hsubparser (printCommand grm <> addCommand grm <> listCommand ltps)
     ) <**> 
     helper) $
   fullDesc
   <> header ("fixnix - a nix expression fixer (version " ++ showVersion Paths_fixnix.version ++ ")")
   <> footerDoc (Just mempty)
 
+ where grm = finderG ltps
 
-listLocations :: [LocationType] -> IO ()
-listLocations ltps = D.putDoc $ D.vsep
-  [ "Below is a list of defined locations." D.</> "If the list is incomplete" D.</> "please" 
+listLocations :: [LocationType] -> Text
+listLocations ltps = Text.pack . flip D.displayS "" . D.renderPretty 0.4 80 $ D.vsep
+  [ "# Locations"
+  , "A location is parsed like this:"
+  , explain (finderG ltps)
+  , ""
+  , "Below is a list of defined locations." D.</> "If the list is incomplete" D.</> "please" 
     D.</> "file a bug report to https://github.com/kalhauge/fixnix."
   , ""
-  , D.vcat $ map (D.nest 2 . describeLocationType) ltps
+  , D.vcat $ map describeLocationType ltps
   ]
 
 fetchFixText :: LocationFinder -> IO Text
@@ -174,14 +161,14 @@ run = do
   (cfg@Config {..}, cmd) <- execParser $ fixnixParserInfo locations
   case cmd of 
     Print x -> do
-      txt <- fetchFixText (cfgLocationFinder x)
+      txt <- fetchFixText x
       Text.putStr txt
     Add xs -> do
       forM_ xs $ \x -> do
-        txt <- fetchFixText (cfgLocationFinder x)
+        txt <- fetchFixText x
         writeDiff txt (cfgFilename cfg x)
     ListLocations -> 
-      listLocations locations
+      Text.putStr $ listLocations locations
 
  where
   writeDiff :: Text -> Path Rel File -> IO ()

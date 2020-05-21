@@ -1,6 +1,7 @@
 {-# LANGUAGE ApplicativeDo #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE Rank2Types #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE QuasiQuotes #-}
@@ -22,6 +23,10 @@ module FixNix.Core where
 
 -- base 
 import           Data.Bifunctor
+import           Data.Maybe
+import           Data.Functor
+import           Control.Applicative
+import           Data.Functor.Contravariant
 import           Data.Void
 import           Data.Foldable
 import qualified Data.List.NonEmpty as NE
@@ -56,6 +61,7 @@ import           System.Process.Typed
 
 -- fixnix
 import FixNix.Grammar
+import FixNix.Grammar.Church
 
 data LocationMode 
   = Download 
@@ -65,6 +71,37 @@ data LocationMode
   | Import
   -- ^ Download, Unpack, and import the location
   deriving (Show, Eq, Ord, Enum, Bounded)
+
+data LocationModeC f = LocationModeC
+  { ifDownload :: f () 
+  , ifUnpack   :: f ()
+  , ifImport   :: f ()
+  }
+
+instance HasChurch LocationMode where
+  type Church LocationMode = LocationModeC
+
+  interpC LocationModeC {..} = \case
+    Download -> getOp ifDownload ()
+    Unpack -> getOp ifUnpack ()
+    Import -> getOp ifImport ()
+
+  generateC LocationModeC {..} = 
+    ifDownload $> Download 
+    <|> ifUnpack $> Unpack 
+    <|> ifImport $> Import
+
+
+instance Transformable LocationModeC where
+  transform nat LocationModeC {..} = LocationModeC
+    { ifDownload = nat ifDownload
+    , ifUnpack = nat ifUnpack
+    , ifImport = nat ifImport
+    }
+
+instance NatFoldable LocationModeC where
+  foldN nat LocationModeC {..} = 
+    nat ifDownload <> nat ifUnpack <> nat ifImport
 
 -- | A location is a url with a name
 data Location = Location 
@@ -97,6 +134,9 @@ data LocationFinder  = LocationFinder
     -- ^ The url of the location, might need an impure computation.
   }
 
+instance Show LocationFinder where
+ show (LocationFinder {..}) = Text.unpack finderIdentifier
+
 -- | Find a location
 buildLocation :: LocationFinder -> LocationBuilder -> Location
 buildLocation LocationFinder {..} LocationBuilder {..} = Location
@@ -125,10 +165,51 @@ data LocationType = forall a. (Show a, Eq a) => LocationType
   , locTypeFinder        :: a -> LocationFinder
   }
 
+-- | Grammar types
+finderG :: [LocationType] -> Grammar LocationFinder
+finderG ltps = 
+  IMap 
+    (\(name, mode, a) -> a 
+      { finderBaseName     = fromMaybe (finderBaseName a) name
+      , finderLocationMode = fromMaybe (finderLocationMode a) mode 
+      }
+    )
+    (\lt@LocationFinder {..} -> 
+      ( Just finderBaseName
+      , Just finderLocationMode
+      , lt
+      )
+    )
+  $ detuple ( nameG , locationModeG, anyLocationG )
+ where
+  nameG :: Grammar (Maybe Text)
+  nameG = sumG MaybeC 
+    { ifJust = until1G "name" '='
+    , ifNothing = "" 
+    }
+
+  locationModeG :: Grammar (Maybe LocationMode)
+  locationModeG = sumG MaybeC 
+    { ifJust = sumG LocationModeC
+      { ifDownload = "?"
+      , ifUnpack   = "!"
+      , ifImport   = "!!"
+      }
+    , ifNothing = ""
+    }
+
+  anyLocationG :: Grammar LocationFinder
+  anyLocationG = anyG 
+    [ case tp of 
+        LocationType {..} -> IMap locTypeFinder undefined $ locTypeGrammar 
+    | tp <- ltps
+    ]
+
+
 -- | Pretty print the location type with examples
 describeLocationType :: LocationType -> Doc
 describeLocationType LocationType {..} = vcat
-  [ hsep [ "*", ttext locTypeName, prefixList ]
+  [ hsep [ "##", ttext locTypeName, prefixList ]
   , ""
   , explain locTypeGrammar
   , ""

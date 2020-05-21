@@ -30,6 +30,8 @@ module FixNix.Grammar where
 -- base 
 import           Data.Void
 import           Data.String
+import           Data.List.NonEmpty (NonEmpty (..))
+import qualified Data.List.NonEmpty as NE
 import           Data.Functor
 import           Data.Monoid
 import           Data.Functor.Contravariant
@@ -70,7 +72,9 @@ data Grammar a where
   Terminal :: Text -> Grammar ()
   Simple   :: Text -> P a -> B a -> Grammar a
   ProductG :: Grammar a -> Grammar b -> Grammar (a, b)
-  SumG     :: (Transformable (Church a), HasChurch a, NatFoldable (Church a)) => Church a Grammar -> Grammar a
+  ChooseG  :: Grammar (Either a a) -> Grammar a
+  SumG     :: (Transformable (Church a), HasChurch a, NatFoldable (Church a)) 
+           => Church a Grammar -> Grammar a
   IMap     :: (a -> b) -> (b -> a) -> Grammar a -> Grammar b
 
 sumG :: 
@@ -89,15 +93,26 @@ parser grm = case grm of
   Simple txt pa ba -> pa 
   ProductG ga gb -> liftM2 (,) (parser ga) (parser gb)
   SumG d -> generateC (transform parser d)
+  ChooseG gaa -> either id id <$> parser gaa
   IMap ab ba ga -> ab <$> parser ga
 
 -- | We can pretty print a grammar
 render :: Grammar a -> B a
 render grm = case grm of
-  Terminal t   -> fromText t
-  Simple n _ b -> b
-  ProductG ga gb   -> Op \(a, b) -> liftM2 (<>) (getOp (render ga) a) (getOp (render gb) b)
-  SumG d   -> Op $ interpC (transform render d)
+  Terminal t -> 
+    fromText t
+  Simple n _ b -> 
+    b
+  ProductG ga gb -> 
+    Op \(a, b) -> 
+      liftM2 (<>) (getOp (render ga) a) (getOp (render gb) b)
+  ChooseG gaa -> 
+    Op \a -> do
+      let ea = getOp (render gaa)
+      ea (Right a) <|> ea (Left a)
+
+  SumG d -> 
+    Op $ interpC (transform render d)
   IMap _ ba (render -> fa) -> 
     contramap ba fa
 
@@ -109,15 +124,17 @@ explain = \case
   Terminal t -> D.squote <> D.string (Text.unpack t) <> D.squote
   Simple txt pa ba -> D.string (Text.unpack txt)
   ProductG ga gb -> explain ga D.<+> explain gb
+  ChooseG ga -> explain ga
   SumG d -> (D.encloseSep "(" ")" "|" $ foldN ((:[]) . explain) d)
   IMap ab ba ga -> explain ga
 
 explainText :: Grammar a -> Text
-explainText = Text.pack . flip displayS "" . renderCompact . explain
+explainText = 
+  Text.pack . flip displayS "" . renderPretty 0.4 80 . explain
 
 untilG :: Text -> Char -> Grammar Text
 untilG name sep = Simple ("<" <> name <> "> '" <> Text.singleton sep <> "'")
-  (P.takeWhileP Nothing (/= sep) <* P.char sep) 
+  (P.try $ P.takeWhileP Nothing (/= sep) <* P.char sep) 
   (Op \txt -> if Text.all (/= sep) txt 
     then Right $ 
       B.fromText txt <> B.fromString [sep]
@@ -131,7 +148,7 @@ restG name = Simple ("<" <> name <> ">") (P.takeRest) (Op $ Right . B.fromText)
 
 until1G :: Text -> Char -> Grammar Text
 until1G name sep = Simple ("<" <> name <> "> '" <> Text.singleton sep <> "'")
-  (P.takeWhile1P Nothing (/= sep) <* P.char sep) 
+  (P.try $ P.takeWhile1P Nothing (/= sep) <* P.char sep) 
   (Op \txt -> if
     | not (Text.all (/= sep) txt) ->
       Left $ "found " ++  show sep ++ " in " ++ show txt 
@@ -141,6 +158,21 @@ until1G name sep = Simple ("<" <> name <> "> '" <> Text.singleton sep <> "'")
     | otherwise -> 
       Right $ B.fromText txt <> B.fromString [sep]
   )
+
+eitherG :: Grammar a -> Grammar b -> Grammar (Either a b)
+eitherG ifLeft ifRight = sumG EitherC {..}
+
+maybeG :: Grammar a -> Grammar () -> Grammar (Maybe a)
+maybeG ifJust ifNothing = sumG MaybeC {..}
+
+-- Given an non-empty list of grammars combine them into one
+anyG :: [Grammar a] -> Grammar a
+anyG = \case 
+  a:as -> ChooseG $ sumG EitherC 
+    { ifLeft = a
+    , ifRight = anyG as
+    }
+  [] -> Simple "or fail" (fail "expected something else") (Op (\a -> error "expected something else"))
 
 (...) = (.) . (.)
 
