@@ -26,6 +26,8 @@ library
     FixNix.Locations
   build-depends:    base >=4.12 && <4.14
                   , Diff
+                  , adjunctions
+                  , ansi-terminal
                   , directory
                   , megaparsec
                   , mtl
@@ -34,7 +36,6 @@ library
                   , path
                   , text
                   , typed-process
-                  , ansi-terminal
   other-modules:  
     Paths_fixnix
   ghc-options: -Wall 

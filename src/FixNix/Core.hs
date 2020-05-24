@@ -198,13 +198,13 @@ finderG ltps =
     }
 
   anyLocationG :: Grammar LocationFinder
-  anyLocationG = anyG 
+  anyLocationG = Group "location" "any location" $ anyG 
     [ case tp of 
         LocationType {..} -> 
-          Group "prefix" "the location prefix" 
-            (anyG [ Terminal t | t <- NE.toList locTypePrefix ])
-          !** ":" 
-            !** (IMap locTypeFinder undefined $ locTypeGrammar)
+          (anyG [ Terminal t | t <- NE.toList locTypePrefix ])
+          !** ":" !**
+            (Group locTypeName locTypeDocumentation
+              (IMap locTypeFinder undefined $ locTypeGrammar))
     | tp <- ltps
     ]
 

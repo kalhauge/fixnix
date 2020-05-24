@@ -1,19 +1,21 @@
 # Locations
 A location is parsed like this:
 
-    (<name> '='|'') <mode> <prefix> ':' <git-owner> '/' <git-repo> '/'
-        <git-commit>
+    (<name> '='|'') <mode> <location>
     
     where
       
       <mode> is the download mode of the location:
           (('?'|'!'|'!!')|'')
       
-      <prefix> is the location prefix:
-          ('github'|'gh')
-      
       <git-commit> is a git commit:
           ('heads/' <head>|'tags/' <tag>|'rev/' <rev>)
+      
+      <GitHub> is Connect to the github API.:
+          <git-owner> '/' <git-repo> '/' <git-commit>
+      
+      <location> is any location:
+          ('github'|'gh') ':' <GitHub>
 
 Below is a list of defined locations. If the list is incomplete please
 file a bug report to https://github.com/kalhauge/fixnix.

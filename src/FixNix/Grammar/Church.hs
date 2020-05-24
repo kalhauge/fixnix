@@ -41,6 +41,9 @@ import           Data.Text                      ( Text )
 import Data.Text.Lazy.Builder         ( Builder )
 import qualified Data.Text.Lazy.Builder        as B
 
+-- adjunctions
+import Data.Functor.Contravariant.Rep
+
 -- optparse-applicative
 import           Options.Applicative.Help   hiding ((<+>))
 
