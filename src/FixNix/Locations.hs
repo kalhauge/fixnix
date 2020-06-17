@@ -63,6 +63,7 @@ $(makeCoLimit ''GitCommit)
 locations :: [ LocationType ]
 locations =
   [ githubLocation
+  , hackageLocation
   ]
 
 -- | GitHub have an intersting API for connecting and downloading branches
@@ -118,6 +119,49 @@ githubLocation = LocationType {..} where
             fail $ "Could not find branch: " ++ Text.unpack branch
      where
       baseUrl = "https://github.com/" <> gitHubOwner <> "/" <> gitHubRepo
+
+
+-- builtins.fetchTarball {
+--   name   = "hspec-hedgehog-0.0.1.2";
+--   url    = "https://hackage.haskell.org/package/hspec-hedgehog-0.0.1.2/hspec-hedgehog-0.0.1.2.tar.gz";
+--   sha256 = "0b1wzhyccijf22q8aac3vj44z0fsq1g0j8saq7vzcd0r97a28r02";
+-- }
+
+-- | GitHub have an intersting API for connecting and downloading branches
+-- and tags.
+hackageLocation :: LocationType
+hackageLocation = LocationType {..} where
+  locTypeName = "Hackage"
+  locTypePrefix = "hackage" NE.:| ["h"]
+  locTypeDocumentation =
+    "Connect to the hackage server."
+  locTypeExamples =
+    [ Example "hspec-hedgehog/0.0.1.2"
+        "Access a package of a specific version "
+    ]
+  locTypeGrammar = defP $ Two
+    (until1G "package-name" '/')
+    (restG "package-version")
+
+  locTypeFinder a@(name, version) = LocationFinder { .. }
+   where
+    finderBaseName = name
+    finderIdentifier =
+      case prettyText locTypeGrammar a of
+        Right a   -> a
+        Left  msg -> error $
+          "Grammar for " <> Text.unpack locTypeName
+          <> " is broken, please report!\n -  " <> msg
+
+    finderLocationMode   = Unpack
+    finderLocation = return $ LocationBuilder
+      { locBUrl = "https://hackage.haskell.org/package/" <> packagename <> "/" <>
+        packagename <> ".tar.gz"
+      , locBSuffix = Just version
+      }
+     where
+      packagename = name <> "-" <> version
+
 
 -- -- | Nixpkgs
 -- nixpkgsLocation :: LocationType

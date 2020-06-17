@@ -1,13 +1,15 @@
 # Create a shell with fixnix in it.
-{ pkgs ? import fix/nixpkgs.nix {}
+{ fix ? import ./fix
+, pkgs ? fix.nixpkgs {}
 }:
 with pkgs;
 mkShell {
-  buildInputs = [ 
-    (haskell.lib.dontCheck 
-     (haskell.lib.disableLibraryProfiling 
+  buildInputs = [
+    (haskell.lib.dontCheck
+     (haskell.lib.disableLibraryProfiling
       ((haskellPackages.extend (haskell.lib.packageSourceOverrides {
-       fixnix = ./..;
+        fixnix = ./..;
+        inherit (fix) grammar;
      })).fixnix)
      ))
   ];

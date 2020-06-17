@@ -178,8 +178,9 @@ run = do
     createDirectoryIfMissing True (fromRelDir $ parent file)
     let filef = fromRelFile file
     tryIOError (Text.readFile filef) >>= \case
-      Left _ ->
+      Left _ -> do
         hPutStrLn stderr "A new file."
+        Text.writeFile filef txt
       Right txt2 -> case diffText True txt2 txt of
         Just msg -> do
           hPutStrLn stderr ("Found a file in " <> show file)

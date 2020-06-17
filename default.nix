@@ -1,6 +1,7 @@
-{ pkgs ? import ./nix/fix/nixpkgs.nix {}
+{ fix ? import ./nix/fix
+, pkgs ? fix.nixpkgs {}
 , compiler ? "default"
-, grammar ? ../grammar
+, grammar ? fix.grammar
 }:
 let
   haskellPackages =
