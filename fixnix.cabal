@@ -18,11 +18,10 @@ extra-source-files:  CHANGELOG.md
 
 library
   hs-source-dirs:   src
-  exposed-modules:  
+  exposed-modules:
     FixNix
     FixNix.Core
     FixNix.Grammar
-    FixNix.Grammar.Church
     FixNix.Locations
   build-depends:    base >=4.12 && <4.14
                   , Diff
@@ -36,9 +35,10 @@ library
                   , path
                   , text
                   , typed-process
-  other-modules:  
+                  , grammar
+  other-modules:
     Paths_fixnix
-  ghc-options: -Wall 
+  ghc-options: -Wall
 
 executable fixnix
   main-is:             Main.hs
@@ -55,11 +55,11 @@ test-suite test-fixnix
   hs-source-dirs: test
   extra-source-files:
     USAGE.txt
-  other-modules:  
+  other-modules:
     FixNixSpec
     FixNix.GrammarSpec
     Spec
-  build-depends:    
+  build-depends:
       base >=4.12 && <4.14
     , fixnix
     , hspec
@@ -75,3 +75,4 @@ test-suite test-fixnix
     , path
     , text
     , typed-process
+    , grammar

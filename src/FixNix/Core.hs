@@ -1,4 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE Rank2Types #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -21,7 +22,7 @@
 -- sources used when writing nix-expressions.
 module FixNix.Core where
 
--- base 
+-- base
 import           Data.Bifunctor
 import           Data.Maybe
 import           Data.Functor
@@ -32,7 +33,7 @@ import           Data.Foldable
 import qualified Data.List.NonEmpty as NE
 import           System.Exit
 
--- Diff 
+-- Diff
 import Data.Algorithm.Diff
 -- import Data.Algorithm.DiffOutput
 
@@ -54,17 +55,20 @@ import           NeatInterpolation              as Neat ( text )
 
 -- optparse-applicative
 import           Options.Applicative.Help.Pretty as D hiding (text)
-import qualified Options.Applicative.Help.Pretty as D 
+import qualified Options.Applicative.Help.Pretty as D
 
 -- typed-process
 import           System.Process.Typed
 
+-- grammar
+import Control.Grammar
+import Control.Grammar.TH
+
 -- fixnix
 import FixNix.Grammar
-import FixNix.Grammar.Church
 
-data LocationMode 
-  = Download 
+data LocationMode
+  = Download
   -- ^ Download the location
   | Unpack
   -- ^ Download and unpack the location
@@ -72,38 +76,10 @@ data LocationMode
   -- ^ Download, Unpack, and import the location
   deriving (Show, Eq, Ord, Enum, Bounded)
 
-data LocationModeC f = LocationModeC
-  { ifDownload :: f () 
-  , ifUnpack   :: f ()
-  , ifImport   :: f ()
-  }
-
-instance HasChurch LocationMode where
-  type Church LocationMode = LocationModeC
-
-  interpC LocationModeC {..} = \case
-    Download -> getOp ifDownload ()
-    Unpack -> getOp ifUnpack ()
-    Import -> getOp ifImport ()
-
-  generateC LocationModeC {..} = 
-    ifDownload $> Download 
-    <|> ifImport $> Import
-    <|> ifUnpack $> Unpack 
-
-instance Transformable LocationModeC where
-  transform nat LocationModeC {..} = LocationModeC
-    { ifDownload = nat ifDownload
-    , ifUnpack = nat ifUnpack
-    , ifImport = nat ifImport
-    }
-
-instance NatFoldable LocationModeC where
-  foldN nat LocationModeC {..} = 
-    nat ifDownload <> nat ifUnpack <> nat ifImport
+$(makeCoLimit ''LocationMode)
 
 -- | A location is a url with a name
-data Location = Location 
+data Location = Location
   { locName :: !Text
   -- ^ the suffix to add to the name
   , locUrl  :: !Text
@@ -120,9 +96,9 @@ data LocationBuilder = LocationBuilder
   -- ^ the url of the location
   } deriving (Show, Eq)
 
--- | A location finder either knows the location of the data, or knows 
+-- | A location finder either knows the location of the data, or knows
 -- how to find the location.
-data LocationFinder  = LocationFinder 
+data LocationFinder  = LocationFinder
   { finderIdentifier :: !Text
     -- ^ The identifier of the location finder
   , finderBaseName :: !Text
@@ -133,20 +109,22 @@ data LocationFinder  = LocationFinder
     -- ^ The url of the location, might need an impure computation.
   }
 
+$(makeLimit ''LocationFinder)
+
 instance Show LocationFinder where
  show (LocationFinder {..}) = Text.unpack finderIdentifier
 
 -- | Find a location
 buildLocation :: LocationFinder -> LocationBuilder -> Location
 buildLocation LocationFinder {..} LocationBuilder {..} = Location
-  { locName   = finderBaseName <> foldMap ("_" <>) locBSuffix 
+  { locName   = finderBaseName <> foldMap ("_" <>) locBSuffix
   , locUrl    = locBUrl
   , locMode = finderLocationMode
   }
 
 -- | Find a location
 findLocation :: LocationFinder -> IO Location
-findLocation lf = fmap (buildLocation lf) . either id return $ 
+findLocation lf = fmap (buildLocation lf) . either id return $
   finderLocation lf
 
 -- | To define an new location type we use this data structure.
@@ -159,52 +137,52 @@ data LocationType = forall a. (Show a, Eq a) => LocationType
   -- ^ A documentation string
   , locTypeExamples      :: [ Example ]
   -- ^ A list of examples, that is both checked and presented to the user.
-  , locTypeGrammar       :: Grammar a
+  , locTypeGrammar       :: LocationG a
   -- ^ A loc type printer-parser
   , locTypeFinder        :: a -> LocationFinder
   }
 
 -- | Grammar types
-finderG :: [LocationType] -> Grammar LocationFinder
-finderG ltps = 
-  IMap 
-    (\(name, mode, a) -> a 
-      { finderBaseName     = fromMaybe (finderBaseName a) name
-      , finderLocationMode = fromMaybe (finderLocationMode a) mode 
-      }
-    )
-    (\lt@LocationFinder {..} -> 
+finderG :: [LocationType] -> LocationG LocationFinder
+finderG ltps =
+  iso
+    (\lt@LocationFinder {..} ->
       ( Just finderBaseName
       , Just finderLocationMode
       , lt
       )
     )
-  $ detuple ( nameG , locationModeG, anyLocationG )
- where
-  nameG :: Grammar (Maybe Text)
-  nameG = sumG MaybeC 
-    { ifJust = until1G "name" '='
-    , ifNothing = "" 
-    }
-
-  locationModeG :: Grammar (Maybe LocationMode)
-  locationModeG = Group "mode" "the download mode of the location" $ sumG MaybeC 
-    { ifJust = sumG LocationModeC
-      { ifDownload = "?"
-      , ifUnpack   = "!"
-      , ifImport   = "!!"
+    (\(name, mode, a) -> a
+      { finderBaseName     = fromMaybe (finderBaseName a) name
+      , finderLocationMode = fromMaybe (finderLocationMode a) mode
       }
+    )
+  $ defP $ Three nameG locationModeG anyLocationG
+ where
+  nameG :: LocationG (Maybe Text)
+  nameG = defS CoMaybe
+    { ifJust = until1G "name" '='
     , ifNothing = ""
     }
 
-  anyLocationG :: Grammar LocationFinder
-  anyLocationG = Group "location" "any location" $ anyG 
-    [ case tp of 
-        LocationType {..} -> 
-          (anyG [ Terminal t | t <- NE.toList locTypePrefix ])
-          !** ":" !**
+  locationModeG :: LocationG (Maybe LocationMode)
+  locationModeG = Group "mode" "the download mode of the location" $ defS CoMaybe
+    { ifJust = buildSum \LocationModeCoLim {..} ->
+      [ ifDownload =: "?"
+      , ifImport   =: "!!"
+      , ifUnpack   =: "!"
+      ]
+    , ifNothing = ""
+    }
+
+  anyLocationG :: LocationG LocationFinder
+  anyLocationG = Group "location" "any location" $ anyG
+    [ case tp of
+        LocationType {..} ->
+          (anyG [ TerminalG t | t <- NE.toList locTypePrefix ])
+          **> ":" **>
             (Group locTypeName locTypeDocumentation
-              (IMap locTypeFinder undefined $ locTypeGrammar))
+              (iso undefined locTypeFinder $ locTypeGrammar))
     | tp <- ltps
     ]
 
@@ -220,12 +198,12 @@ describeLocationType LocationType {..} = vcat
   , ""
   , "### Examples:"
   , ""
-  , vsep $ 
-    [ vsep 
+  , vsep $
+    [ vsep
       [ e
       , ""
       , indent 4 . vsep $
-        [ hsep 
+        [ hsep
           [ "$", "fixnix", ttext (NE.head locTypePrefix) <> ":" <> ttext l ]
         , ""
         , renderLocation l
@@ -235,13 +213,13 @@ describeLocationType LocationType {..} = vcat
     | Example l e <- locTypeExamples
     ]
   ]
- where 
+ where
   prefixList = encloseSep "(" ")" ", " (ttext <$> NE.toList locTypePrefix)
-  renderLocation l = case parseEither (parser locTypeGrammar) "LOCATION" l of 
+  renderLocation l = case parseEither (parser locTypeGrammar ()) "LOCATION" l of
     Left msg -> string msg
     Right (locTypeFinder -> finder) -> case finderLocation finder of
       Left _ -> "(unpure)"
-      Right (buildLocation finder -> Location {..}) -> vsep 
+      Right (buildLocation finder -> Location {..}) -> vsep
         [ "fetches:" <+> ttext locUrl
         , "name:" <+> ttext locName
         , "do:" <+> D.string (show locMode)
@@ -257,20 +235,20 @@ data Example = Example
 
 -- | A missing utility of Megaparsec.
 parseEither :: P a -> String -> Text -> Either String a
-parseEither p str = 
+parseEither p str =
   first P.errorBundlePretty . P.parse p str
 
 -- | Parse a Location Finder
 locationFinderP :: LocationType -> P LocationFinder
 locationFinderP LocationType {..} = do
-  P.label "location type" $ 
+  P.label "location type" $
     msum [ P.string' prfx | prfx <- NE.toList locTypePrefix ]
   P.char ':'
-  locTypeFinder <$> parser locTypeGrammar
+  locTypeFinder <$> parser locTypeGrammar ()
 
 -- | Parse any of the locations
 anyLocationFinderP :: [LocationType] -> P LocationFinder
-anyLocationFinderP = 
+anyLocationFinderP =
   msum . map locationFinderP
 
 -- | Render a FetchUrl to Text.
@@ -286,27 +264,27 @@ renderLocation Location {..} (sha256AsText -> sha256) =
   importEnd   = if locMode >= Import then ")" else ""
   fetcher = if locMode >= Unpack then "fetchTarball" else "fetchurl"
 
--- | Prefetch a url, add it to the database and return a hash if it 
+-- | Prefetch a url, add it to the database and return a hash if it
 -- succeeds.
 prefetchIO :: Location -> IO (Maybe Sha256)
 prefetchIO loc = do
   (ec, out) <- readProcessStdout . proc "nix-prefetch-url" $
     prefetchArgs loc
-  return $ case ec of 
-    ExitSuccess   -> 
+  return $ case ec of
+    ExitSuccess   ->
       Just (Sha256 . LazyText.toStrict . LazyText.strip $ LazyText.decodeUtf8 out)
-    ExitFailure _ -> 
+    ExitFailure _ ->
       Nothing
  where
-  prefetchArgs Location {..} = Text.unpack <$> concat 
+  prefetchArgs Location {..} = Text.unpack <$> concat
     [ [ "--unpack" | locMode >= Unpack ]
     , [ "--name", locName ]
     , [ locUrl ]
     ]
 
 -- | A simple wraper around Text.
-newtype Sha256 = Sha256 
-  { sha256AsText :: Text 
+newtype Sha256 = Sha256
+  { sha256AsText :: Text
   } deriving (Show)
 
 zeroSha256 :: Sha256
@@ -314,25 +292,25 @@ zeroSha256 = Sha256 "0000000000000000000000000000000000000000000000000000"
 
 -- DiffText, simply do a diff of the previous text and the new, and add
 -- colors.
-diffText :: 
-  Bool 
+diffText ::
+  Bool
   -- ^ Use color?
-  -> Text 
+  -> Text
   -- ^ Previous text
-  -> Text 
+  -> Text
   -- ^ Future text
   -> Maybe String
 diffText useColor from to = case getGroupedDiff (Text.lines from) (Text.lines to) of
   [] -> Nothing
-  diff -> Just . unlines $ flip concatMap diff \case 
+  diff -> Just . unlines $ flip concatMap diff \case
     Both _ ss -> prefixAll "    " ss
     First  ss -> prefixAll (color Red   "--- ") ss
     Second ss -> prefixAll (color Green "+++ ") ss
- where 
+ where
   prefixAll x ss = map ((x ++) . Text.unpack) ss
-  color c x 
-    | useColor  = setSGRCode [SetColor Foreground Dull c] ++ x ++ setSGRCode [Reset] 
-    | otherwise = x 
+  color c x
+    | useColor  = setSGRCode [SetColor Foreground Dull c] ++ x ++ setSGRCode [Reset]
+    | otherwise = x
 
 ttext :: Text -> Doc
 ttext = D.text . Text.unpack

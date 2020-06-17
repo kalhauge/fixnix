@@ -1,4 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -15,7 +16,7 @@
 --
 module FixNix.Locations where
 
--- base 
+-- base
 import           Data.Foldable
 import           Control.Applicative
 import           Data.Functor.Contravariant
@@ -38,48 +39,65 @@ import           Options.Applicative.Help.Pretty as D hiding (text)
 -- typed-process
 import           System.Process.Typed
 
+-- grammar
+import Control.Grammar
+import Control.Grammar.TH
+
 -- fixnix
 import FixNix.Core
 import FixNix.Grammar
-import FixNix.Grammar.Church
+
+-- * Utils
+
+data GitCommit
+  = GitBranch    !Text
+  | GitTag       !Text
+  | GitRevision  !Text
+  deriving (Show, Eq)
+  --    | GitWildCard  !Text
+
+$(makeCoLimit ''GitCommit)
+
 
 -- * Locations
 locations :: [ LocationType ]
-locations = 
-  [ githubLocation 
+locations =
+  [ githubLocation
   ]
 
 -- | GitHub have an intersting API for connecting and downloading branches
 -- and tags.
-githubLocation :: LocationType 
+githubLocation :: LocationType
 githubLocation = LocationType {..} where
   locTypeName = "GitHub"
   locTypePrefix = "github" NE.:| ["gh"]
   locTypeDocumentation =
     "Connect to the github API."
-  locTypeExamples = 
-    [ Example "nixos/nixpkgs/tags/20.03" 
+  locTypeExamples =
+    [ Example "nixos/nixpkgs/tags/20.03"
         "Accesss the tag of a github page."
-    , Example "nixos/nixpkgs/rev/1234abcd" 
+    , Example "nixos/nixpkgs/rev/1234abcd"
         "Accesss the revision of a github page."
-    , Example "nixos/nixpkgs/heads/nixpkgs-20.03" 
+    , Example "nixos/nixpkgs/heads/nixpkgs-20.03"
         $ paragraph "Accesss the branch of a github page. It will use `git ls-remote` to fix the current revision."
     ]
-  locTypeGrammar = 
-    detuple (until1G "git-owner" '/', until1G "git-repo" '/', gitCommitGrammar)
+  locTypeGrammar = defP $ Three
+    (until1G "git-owner" '/')
+    (until1G "git-repo" '/')
+    gitCommitGrammar
 
   locTypeFinder a@(gitHubOwner, gitHubRepo, commit) = LocationFinder { .. }
    where
     finderBaseName = gitHubRepo
-    finderIdentifier = 
+    finderIdentifier =
       case prettyText locTypeGrammar a of
         Right a   -> a
-        Left  msg -> error $ 
-          "Grammar for " <> Text.unpack locTypeName 
+        Left  msg -> error $
+          "Grammar for " <> Text.unpack locTypeName
           <> " is broken, please report!\n -  " <> msg
 
     finderLocationMode   = Unpack
-    finderLocation = case commit of 
+    finderLocation = case commit of
       GitTag tag -> Right $ LocationBuilder
         { locBUrl = baseUrl <> "/archive/" <> tag <> ".tar.gz"
         , locBSuffix = Just tag
@@ -96,39 +114,39 @@ githubLocation = LocationType {..} where
             { locBUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
             , locBSuffix = Just $ branch <> "_" <> (Text.take 6 rev)
             }
-          Nothing -> 
+          Nothing ->
             fail $ "Could not find branch: " ++ Text.unpack branch
      where
       baseUrl = "https://github.com/" <> gitHubOwner <> "/" <> gitHubRepo
 
 -- -- | Nixpkgs
--- nixpkgsLocation :: LocationType 
+-- nixpkgsLocation :: LocationType
 -- nixpkgsLocation = LocationType {..} where
 --   locName = "Nixpkgs"
 --   locPrefix = "nixpkgs" NE.:| ["nixos", "nix", "n"]
 --   locDocumentation =
 --     "Fix a version of the nixpkgs."
---   locExamples = 
---     [ Example "heads/nixos-20.03" 
+--   locExamples =
+--     [ Example "heads/nixos-20.03"
 --         "Use the 'nixos-20.03' branch."
 --     , Example "heads/nixos-unstable"
 --         "Use the 'nixos-unstable' branch."
 --     ]
 --   locParser = gitCommitP
--- 
---   locPrinter commit = 
+--
+--   locPrinter commit =
 --     case commit of
 --       GitBranch   branch -> "heads/" <> Builder.fromText branch
 --       GitTag      tag    -> "tags/"  <> Builder.fromText tag
 --       GitRevision rev    -> "rev/"  <> Builder.fromText rev
--- 
+--
 --   locToUrl commit = do
---     case commit of 
---       GitTag tag -> PureUrl 
+--     case commit of
+--       GitTag tag -> PureUrl
 --         ( base <> "/archive/" <> tag <> ".tar.gz"
 --         , gitHubRepo <> "_" <> tag
 --         )
---       GitRevision rev -> PureUrl 
+--       GitRevision rev -> PureUrl
 --         ( base <> "/archive/" <> rev <> ".tar.gz"
 --         , gitHubRepo <> "_" <> rev
 --         )
@@ -140,7 +158,7 @@ githubLocation = LocationType {..} where
 --             ( base <> "/archive/" <> rev <> ".tar.gz"
 --             , gitHubRepo <> "_" <> branch <> "_" <> (Text.take 6 rev)
 --             )
---           Nothing -> 
+--           Nothing ->
 --             fail $ "Could not find branch: " ++ Text.unpack branch
 --    where
 --     gitHubOwner = "nixos"
@@ -149,46 +167,9 @@ githubLocation = LocationType {..} where
 
 
 
--- * Utils
-
-data GitCommit
-  = GitBranch    !Text
-  | GitTag       !Text
-  | GitRevision  !Text
-  deriving (Show, Eq)
-  --    | GitWildCard  !Text
-
-data GitCommitC f = GitCommitC 
-  { ifGitBranch   :: f Text
-  , ifGitTag      :: f Text
-  , ifGitRevision :: f Text
-  }
-
-instance HasChurch GitCommit where
-  type Church GitCommit = GitCommitC
-
-  interpC GitCommitC {..} = \case
-    GitBranch t   -> getOp ifGitBranch t
-    GitTag t      -> getOp ifGitTag t
-    GitRevision t -> getOp ifGitRevision t
-
-  generateC GitCommitC {..} = 
-    (GitBranch <$> ifGitBranch) <|> (GitTag <$> ifGitTag) <|> (GitRevision <$> ifGitRevision)
-
-
-instance Transformable GitCommitC where
-  transform nat GitCommitC {..} = GitCommitC 
-    { ifGitBranch   = nat ifGitBranch
-    , ifGitTag      = nat ifGitTag
-    , ifGitRevision = nat ifGitRevision 
-    }
-
-instance NatFoldable GitCommitC where
-  foldN nat GitCommitC {..} = nat ifGitBranch <> nat ifGitTag <> nat ifGitRevision 
-
-gitCommitGrammar :: Grammar GitCommit
-gitCommitGrammar = Group "git-commit" "a git commit" $ sumG GitCommitC
-  { ifGitBranch = "heads/" !** restG "head"
-  , ifGitTag = "tags/" !** restG "tag" 
-  , ifGitRevision = "rev/" !** restG "rev"
+gitCommitGrammar :: LocationG GitCommit
+gitCommitGrammar = Group "git-commit" "a git commit" $ defS GitCommitCoLim
+  { ifGitBranch = "heads/" **> restG "head"
+  , ifGitTag = "tags/" **> restG "tag"
+  , ifGitRevision = "rev/" **> restG "rev"
   }

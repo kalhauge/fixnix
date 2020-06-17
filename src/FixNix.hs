@@ -18,7 +18,7 @@
 -- sources used when writing nix-expressions.
 module FixNix where
 
--- base 
+-- base
 import           Data.Version
 import           Data.Maybe
 import           Data.Function
@@ -40,7 +40,7 @@ import qualified Data.Text.IO as Text
 import           Options.Applicative
 import qualified Options.Applicative.Help.Pretty as D
 
--- megaparsec 
+-- megaparsec
 import qualified Text.Megaparsec               as P
 import qualified Text.Megaparsec.Char          as P
 
@@ -58,28 +58,28 @@ data Config = Config
   }
 
 cfgFilename :: Config -> LocationFinder -> Path Rel File
-cfgFilename Config {..} lc@LocationFinder {..} = 
+cfgFilename Config {..} lc@LocationFinder {..} =
   case parseRelFile filename of
    Just rf -> cfgFixFolder </> rf
    Nothing -> error ("Bad base name " ++ filename)
- where 
+ where
   filename = Text.unpack $ finderBaseName <> ".nix"
 
-data Command 
+data Command
   = Print LocationFinder
   | Add   [LocationFinder]
   | ListLocations
 
-readLocationFinder :: Grammar LocationFinder -> ReadM LocationFinder
-readLocationFinder grm = eitherReader $ 
-  parseEither (parser grm) "LOCATION" . Text.pack
+readLocationFinder :: LocationG LocationFinder -> ReadM LocationFinder
+readLocationFinder grm = eitherReader $
+  parseEither (parser grm ()) "LOCATION" . Text.pack
 
-argLocation :: Grammar LocationFinder -> Parser LocationFinder
-argLocation grm = argument (readLocationFinder grm) $ 
+argLocation :: LocationG LocationFinder -> Parser LocationFinder
+argLocation grm = argument (readLocationFinder grm) $
   metavar "LOCATION"
   <> help "The location to download (see 'fixnix list)"
 
-printCommand :: Grammar LocationFinder -> Mod CommandFields Command
+printCommand :: LocationG LocationFinder -> Mod CommandFields Command
 printCommand grm = command "print" $
   info p (progDesc "print the fix-file to stdout")
  where
@@ -87,7 +87,7 @@ printCommand grm = command "print" $
     x <- argLocation grm
     pure $ Print x
 
-addCommand :: Grammar LocationFinder -> Mod CommandFields Command
+addCommand :: LocationG LocationFinder -> Mod CommandFields Command
 addCommand grm = command "add" $
   info p (progDesc "add/override fix-file(s) to the fix-folder")
  where
@@ -110,15 +110,15 @@ parseConfig = do
     <> showDefault
     <> help "The relative path to the fix folder."
 
-  pure $ Config 
+  pure $ Config
     { cfgFixFolder
     }
 
 fixnixParserInfo :: [LocationType] -> ParserInfo (Config, Command)
-fixnixParserInfo ltps = info 
-    (((,) <$> parseConfig <*> 
+fixnixParserInfo ltps = info
+    (((,) <$> parseConfig <*>
       hsubparser (printCommand grm <> addCommand grm <> listCommand ltps)
-    ) <**> 
+    ) <**>
     helper) $
   fullDesc
   <> header ("fixnix - a nix expression fixer (version " ++ showVersion Paths_fixnix.version ++ ")")
@@ -133,7 +133,7 @@ listLocations ltps = Text.pack . flip D.displayS "" . D.renderPretty 0.9 80 $ D.
   , ""
   , D.indent 4 $ explainGrammar (finderG ltps)
   , ""
-  , "Below is a list of defined locations." D.</> "If the list is incomplete" D.</> "please" 
+  , "Below is a list of defined locations." D.</> "If the list is incomplete" D.</> "please"
     D.</> "file a bug report to https://github.com/kalhauge/fixnix."
   , ""
   , D.vcat $ map describeLocationType ltps
@@ -143,12 +143,12 @@ fetchFixText :: LocationFinder -> IO Text
 fetchFixText finder = do
   loc <- findLocation finder
   sha256 <- prefetchIO loc
-  case sha256 of 
+  case sha256 of
     Nothing -> fail "Could not prefetch url."
-    Just sha256 -> do 
+    Just sha256 -> do
       args <- getArgs
       return $ renderFixNixExpr args loc sha256
- where 
+ where
   renderFixNixExpr args loc sha256 = foldMap (<> "\n")
     [ "# Auto-generated with fixnix (version " <> textVersion <> ")"
     , "# " <> Text.unwords (map Text.pack args)
@@ -161,7 +161,7 @@ fetchFixText finder = do
 run :: IO ()
 run = do
   (cfg@Config {..}, cmd) <- execParser $ fixnixParserInfo locations
-  case cmd of 
+  case cmd of
     Print x -> do
       txt <- fetchFixText x
       Text.putStr txt
@@ -169,7 +169,7 @@ run = do
       forM_ xs $ \x -> do
         txt <- fetchFixText x
         writeDiff txt (cfgFilename cfg x)
-    ListLocations -> 
+    ListLocations ->
       Text.putStr $ listLocations locations
 
  where
@@ -178,15 +178,15 @@ run = do
     createDirectoryIfMissing True (fromRelDir $ parent file)
     let filef = fromRelFile file
     tryIOError (Text.readFile filef) >>= \case
-      Left _ -> 
+      Left _ ->
         hPutStrLn stderr "A new file."
-      Right txt2 -> case diffText True txt2 txt of 
-        Just msg -> do 
+      Right txt2 -> case diffText True txt2 txt of
+        Just msg -> do
           hPutStrLn stderr ("Found a file in " <> show file)
           hPutStr stderr msg
           confirm "Can I override this file?" do
             Text.writeFile filef txt
-        Nothing  -> 
+        Nothing  ->
           return ()
 
   confirm :: String -> IO () -> IO ()

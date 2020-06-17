@@ -1,4 +1,5 @@
 {-# LANGUAGE BlockArguments #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -33,81 +34,51 @@ import Data.Text.Lazy.Builder as B
 
 import Data.Foldable
 
-import FixNix.Grammar
-import FixNix.Grammar.Church
+-- grammar
+import Control.Grammar
+import Control.Grammar.TH
 
-data Enumeration 
-  = One
-  | Two
-  | Three
+import FixNix.Grammar
+
+data Enumeration
+  = EOne
+  | ETwo
+  | EThree
   deriving (Show, Eq)
 
-data EnumerationC f = EnumerationC
-  { ifOne :: f ()
-  , ifTwo :: f ()
-  , ifThree :: f ()
-  }
-
-instance HasChurch Enumeration where
-  type Church Enumeration = EnumerationC
-
-  interpC EnumerationC {..} = \case
-    One -> getOp ifOne ()
-    Two -> getOp ifTwo ()
-    Three -> getOp ifThree ()
-
-  generateC EnumerationC {..} = asum
-    [ One <$ ifOne
-    , Two <$ ifTwo
-    , Three <$ ifThree
-    ]
-
-instance Transformable EnumerationC where
-  transform nat EnumerationC {..} = 
-    EnumerationC { ifOne = nat ifOne, ifTwo = nat ifTwo, ifThree = nat ifThree }
-
-instance NatFoldable EnumerationC where
-  foldN nat EnumerationC {..} = 
-    nat ifOne <> nat ifTwo <> nat ifThree 
-
-enumerationG :: Grammar Enumeration
-enumerationG = sumG EnumerationC
-  { ifOne = "one"
-  , ifTwo = "two"
-  , ifThree = "three"
-  }
+$(makeCoLimit ''Enumeration)
 
 spec :: Spec
 spec = do
   describeGrammar "github"
-    (detuple (until1G "git-owner" '/', until1G "git-repo" '/'))
+    (defP $ Two (until1G "git-owner" '/') (until1G "git-repo" '/'))
     [ "hello/world/" ]
-    ( Just $ liftM2 (,) 
-      (Gen.text (Range.linear 0 10) Gen.unicode) 
+    ( Just $ liftM2 (,)
+      (Gen.text (Range.linear 0 10) Gen.unicode)
       (Gen.text (Range.linear 0 10) Gen.unicode)
     )
 
-  describeGrammar "enumeration" 
-    enumerationG
+  describeGrammar "enumeration"
+    (defS $ EnumerationCoLim "one" "two" "three")
     [ "one" , "two" , "three" ]
-    ( Just $ Gen.element [ One, Two, Three ] )
+    ( Just $ Gen.element [ EOne, ETwo, EThree ] )
 
-describeGrammar :: (Eq a, Show a) => String -> Grammar a -> [ Text ] -> (Maybe (Gen a)) -> Spec
+describeGrammar :: (Eq a, Show a) => String -> LocationG a -> [ Text ] -> (Maybe (Gen a)) -> Spec
 describeGrammar name grm examples mgenerator = describe ("Grammar " <> name) do
   describe "examples" do
     forM_ examples \from -> do
       it ("should parse " ++ Text.unpack from) do
-        parse (parser grm) "GRAMMA" `shouldSucceedOn` from 
+        parse (parser grm ()) "GRAMMA" `shouldSucceedOn` from
       it ("should parse-pretty-parse " ++ Text.unpack from) do
-        let Right a = parse (parser grm) "" from
+        let Right a = parse (parser grm ()) "" from
         counterexample (show a) do
-          case prettyText grm a of 
-            Right target -> 
+          case prettyText grm a of
+            Right target ->
               counterexample (show target) do
-                parse (parser grm) "" target `shouldParse` a
-            Left a -> 
+                parse (parser grm ()) "" target `shouldParse` a
+            Left a ->
               fail a
-  case mgenerator of 
+  case mgenerator of
     Nothing -> return ()
     Just generator -> describe "adjunction" do
       it "should be able to pretty-render-pretty" . hedgehog $ do
@@ -115,33 +86,33 @@ describeGrammar name grm examples mgenerator = describe ("Grammar " <> name) do
         case prettyText grm a of
           Left msg -> return ()
           Right b  -> do
-            parse (parser grm) "grammar" b === Right a
+            parse (parser grm ()) "grammar" b === Right a
 
 
-  -- describe "parser" do 
+  -- describe "parser" do
   --   it "should parse 'hello'" do
-  --     let 
+  --     let
   --       githubGrammar :: Grammar (Text, Text)
-  --       githubGrammar = 
+  --       githubGrammar =
   --           detuple (var "git-owner" <+ "/", var "git-repo" <+ "/")
   --     parse (parser githubGrammar) "HELLO" `shouldSucceedOn` "hsello/this/"
 
-data WithCounterExample = 
-  WithCounterExample [String] SomeException 
+data WithCounterExample =
+  WithCounterExample [String] SomeException
 
 instance Show WithCounterExample where
-  show (WithCounterExample examples e@(SomeException ex)) = 
+  show (WithCounterExample examples e@(SomeException ex)) =
     "Counter examples: " ++ "\n" ++
       fold (L.zipWith (\i str -> " " ++ show i ++ ") " ++ str ++ "\n") [1..] examples)
-    ++ case fromException e of 
+    ++ case fromException e of
          Just (HUnitFailure a reason) -> formatFailureReason reason
-         Nothing -> show (typeOf ex) ++ ": " ++ show ex 
+         Nothing -> show (typeOf ex) ++ ": " ++ show ex
 
 instance Exception WithCounterExample where
 
 counterexample :: HasCallStack => String -> IO a -> IO a
 counterexample str io = catches io
   [ Handler (\(WithCounterExample strs e) -> throwIO (WithCounterExample (str:strs) e))
-  , Handler (\e -> throwIO (WithCounterExample [str] e)) 
+  , Handler (\e -> throwIO (WithCounterExample [str] e))
   ]
 

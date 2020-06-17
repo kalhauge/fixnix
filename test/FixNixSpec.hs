@@ -37,16 +37,16 @@ import FixNix.GrammarSpec
 
 locationTypeSpec :: LocationType -> Spec
 locationTypeSpec (LocationType {..}) = describe (Text.unpack locTypeName) do
-  describeGrammar 
+  describeGrammar
     (Text.unpack locTypeName)
     locTypeGrammar
     (map exampleIdentifier locTypeExamples)
     Nothing
 
---     forM_ locTypeExamples \Example {..} ->  
+--     forM_ locTypeExamples \Example {..} ->
 --       it ("should succeed on " ++ show exampleIdentifier) do
 --         parse locTypeParser "" `shouldSucceedOn` exampleIdentifier
--- 
+--
 --   describe "parser-printer adjunction" do
 --     forM_ locTypeExamples \Example {..} -> do
 --       it ("should parse-pretty-parse on " ++ show exampleIdentifier) do
@@ -59,11 +59,11 @@ locationTypeSpec (LocationType {..}) = describe (Text.unpack locTypeName) do
 spec :: Spec
 spec = do
   describe "location types" do
-    mapM_ locationTypeSpec locations 
+    mapM_ locationTypeSpec locations
 
   describe "renderFetchUrl" do
     it "should print something" do
-      let 
+      let
         input = Location
           { locUrl = "hello"
           , locName = "name"
@@ -77,7 +77,7 @@ spec = do
       renderLocation input zeroSha256 `shouldBe` output
 
     it "should also support printing" do
-      let 
+      let
         input = Location
           { locUrl = "hello"
           , locName = "name"
@@ -89,11 +89,11 @@ spec = do
           sha256 = "0000000000000000000000000000000000000000000000000000";
         })|]
       renderLocation input zeroSha256 `shouldBe` output
-  
+
   describe "locations" do
-    let 
+    let
       itShouldSucceedOn p = it ("should parse " <> show p) do
-        parse (parser (finderG locations)) "LOCATION" `shouldSucceedOn` p
+        parse (parser (finderG locations) ()) "LOCATION" `shouldSucceedOn` p
 
     itShouldSucceedOn "name=github:nixos/nixpkgs/tags/20.03"
     itShouldSucceedOn "name=!github:nixos/nixpkgs/tags/20.03"
@@ -105,15 +105,15 @@ spec = do
   describe "description" do
     fs <- runIO (readFile "USAGE.txt")
     it "should equal the description in USAGE.txt" do
-      let a = execParserPure (prefs mempty) (fixnixParserInfo locations) ["-h"] 
-      case a of 
+      let a = execParserPure (prefs mempty) (fixnixParserInfo locations) ["-h"]
+      case a of
         Options.Applicative.Failure failure -> do
-          let (txt, s) = renderFailure failure "fixnix" 
+          let (txt, s) = renderFailure failure "fixnix"
           txt ++ "\n" `shouldBe` fs
           s `shouldBe` ExitSuccess
-        _ -> 
+        _ ->
           fail "Expected failure"
-  
+
   describe "locations" do
     fs <- runIO (readFile "LOCATION.md")
     it "should equal the description in LOCATION.md" do
