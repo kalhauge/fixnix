@@ -206,7 +206,7 @@ describeLocationType LocationType {..} = vcat
         [ hsep
           [ "$", "fixnix", ttext (NE.head locTypePrefix) <> ":" <> ttext l ]
         , ""
-        , renderLocation l
+        , renderLocationG l
         ]
       , ""
       ]
@@ -215,7 +215,7 @@ describeLocationType LocationType {..} = vcat
   ]
  where
   prefixList = encloseSep "(" ")" ", " (ttext <$> NE.toList locTypePrefix)
-  renderLocation l = case parseEither (parser locTypeGrammar ()) "LOCATION" l of
+  renderLocationG l = case parseEither (parser locTypeGrammar ()) "LOCATION" l of
     Left msg -> string msg
     Right (locTypeFinder -> finder) -> case finderLocation finder of
       Left _ -> "(unpure)"

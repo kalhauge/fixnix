@@ -104,11 +104,11 @@ parser :: LocationG a -> () -> P a
 parser grm = case grm of
   TerminalG t -> \() -> P.string t $> ()
   Group _ _ a -> parser a
-  Simple txt pa ba -> \() -> pa
+  Simple _ pa _ -> \() -> pa
   LocProdG d -> unfoldProdG parser d
   LocSumG d -> unfoldSumG parser d
   ChooseG gaa -> \() -> either id id <$> parser gaa ()
-  LocIsoG ba ab ga -> \() -> ab <$> parser ga ()
+  LocIsoG _ ab ga -> \() -> ab <$> parser ga ()
 
 -- | We can pretty print a grammar
 render :: LocationG a -> B a
@@ -117,7 +117,7 @@ render grm = case grm of
     fromText t
   Group _ _ a ->
     render a
-  Simple n _ b ->
+  Simple _ _ b ->
     b
   LocProdG d -> Op (getAp . foldProdG (\ta a -> Ap $ getOp (render ta) a) d)
   LocSumG d -> Op (foldSumG (getOp . render) d)
@@ -136,7 +136,7 @@ prettyText = buildToText . render
 explain :: LocationG a -> Writer [(Text, Doc)] Doc
 explain = \case
   TerminalG t -> return $ D.squote <> D.string (Text.unpack t) <> D.squote
-  Simple txt pa ba -> return $ D.string (Text.unpack txt)
+  Simple txt _ _ -> return $ D.string (Text.unpack txt)
   ChooseG ga -> explain ga
   Group t d ga -> do
     doc <- explain ga
@@ -148,7 +148,7 @@ explain = \case
   LocSumG d -> do
     hl <- sequence $ inspectSumG explain d
     return $ D.encloseSep "(" ")" "|" hl
-  LocIsoG ab ba ga -> explain ga
+  LocIsoG _ _ ga -> explain ga
 
 explainGrammar :: LocationG a -> Doc
 explainGrammar g =
@@ -169,30 +169,30 @@ explainText =
   Text.pack . flip displayS "" . renderPretty 0.9 80 . explainGrammar
 --
 untilG :: Text -> Char -> LocationG Text
-untilG name sep = Simple ("<" <> name <> "> '" <> Text.singleton sep <> "'")
-  (P.try $ P.takeWhileP Nothing (/= sep) <* P.char sep)
-  (Op \txt -> if Text.all (/= sep) txt
+untilG name csep = Simple ("<" <> name <> "> '" <> Text.singleton csep <> "'")
+  (P.try $ P.takeWhileP Nothing (/= csep) <* P.char csep)
+  (Op \txt -> if Text.all (/= csep) txt
     then Right $
-      B.fromText txt <> B.fromString [sep]
+      B.fromText txt <> B.fromString [csep]
     else Left $
-      "found " ++  show sep ++ " in " ++ show txt
-      ++ ", but it is ended by " ++ show sep ++ "."
+      "found " ++  show csep ++ " in " ++ show txt
+      ++ ", but it is ended by " ++ show csep ++ "."
   )
 
 restG :: Text -> LocationG Text
 restG name = Simple ("<" <> name <> ">") (P.takeRest) (Op $ Right . B.fromText)
 
 until1G :: Text -> Char -> LocationG Text
-until1G name sep = Simple ("<" <> name <> "> '" <> Text.singleton sep <> "'")
-  (P.try $ P.takeWhile1P Nothing (/= sep) <* P.char sep)
+until1G name csep = Simple ("<" <> name <> "> '" <> Text.singleton csep <> "'")
+  (P.try $ P.takeWhile1P Nothing (/= csep) <* P.char csep)
   (Op \txt -> if
-    | not (Text.all (/= sep) txt) ->
-      Left $ "found " ++  show sep ++ " in " ++ show txt
-        ++ ", but it is ended by " ++ show sep ++ "."
+    | not (Text.all (/= csep) txt) ->
+      Left $ "found " ++  show csep ++ " in " ++ show txt
+        ++ ", but it is ended by " ++ show csep ++ "."
     | Text.null txt ->
       Left $ show txt ++ "is empty but should have atleast one element"
     | otherwise ->
-      Right $ B.fromText txt <> B.fromString [sep]
+      Right $ B.fromText txt <> B.fromString [csep]
   )
 --
 -- eitherG :: Grammar a -> Grammar b -> Grammar (Either a b)
@@ -209,7 +209,7 @@ anyG = \case
     { ifLeft = a
     , ifRight = anyG as
     }
-  [] -> Simple "or fail" (fail "expected something else") (Op (\a -> error "expected something else"))
+  [] -> Simple "or fail" (fail "expected something else") (Op . const $ error "expected something else")
 --
 -- (...) = (.) . (.)
 --

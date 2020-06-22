@@ -76,15 +76,15 @@ describeGrammar name grm examples mgenerator = describe ("Grammar " <> name) do
             Right target ->
               counterexample (show target) do
                 parse (parser grm ()) "" target `shouldParse` a
-            Left a ->
-              fail a
+            Left msg ->
+              fail msg
   case mgenerator of
     Nothing -> return ()
     Just generator -> describe "adjunction" do
       it "should be able to pretty-render-pretty" . hedgehog $ do
         a <- forAll generator
         case prettyText grm a of
-          Left msg -> return ()
+          Left _ -> return ()
           Right b  -> do
             parse (parser grm ()) "grammar" b === Right a
 
@@ -105,7 +105,7 @@ instance Show WithCounterExample where
     "Counter examples: " ++ "\n" ++
       fold (L.zipWith (\i str -> " " ++ show i ++ ") " ++ str ++ "\n") [1..] examples)
     ++ case fromException e of
-         Just (HUnitFailure a reason) -> formatFailureReason reason
+         Just (HUnitFailure _ reason) -> formatFailureReason reason
          Nothing -> show (typeOf ex) ++ ": " ++ show ex
 
 instance Exception WithCounterExample where

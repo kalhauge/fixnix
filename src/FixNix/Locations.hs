@@ -92,7 +92,7 @@ githubLocation = LocationType {..} where
     finderBaseName = gitHubRepo
     finderIdentifier =
       case prettyText locTypeGrammar a of
-        Right a   -> a
+        Right ga -> ga
         Left  msg -> error $
           "Grammar for " <> Text.unpack locTypeName
           <> " is broken, please report!\n -  " <> msg
@@ -148,8 +148,8 @@ hackageLocation = LocationType {..} where
     finderBaseName = name
     finderIdentifier =
       case prettyText locTypeGrammar a of
-        Right a   -> a
-        Left  msg -> error $
+        Right ga -> ga
+        Left msg -> error $
           "Grammar for " <> Text.unpack locTypeName
           <> " is broken, please report!\n -  " <> msg
 

@@ -107,8 +107,8 @@ spec = do
     it "should equal the description in USAGE.txt" do
       let a = execParserPure (prefs mempty) (fixnixParserInfo locations) ["-h"]
       case a of
-        Options.Applicative.Failure failure -> do
-          let (txt, s) = renderFailure failure "fixnix"
+        Options.Applicative.Failure failure' -> do
+          let (txt, s) = renderFailure failure' "fixnix"
           txt ++ "\n" `shouldBe` fs
           s `shouldBe` ExitSuccess
         _ ->

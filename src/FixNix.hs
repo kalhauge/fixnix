@@ -60,12 +60,12 @@ data Config = Config
   }
 
 cfgFilename :: Config -> LocationFinder -> Path Rel File
-cfgFilename Config {..} lc@LocationFinder {..} =
-  case parseRelFile filename of
+cfgFilename Config {..} LocationFinder {..} =
+  case parseRelFile fname of
    Just rf -> cfgFixFolder </> rf
-   Nothing -> error ("Bad base name " ++ filename)
+   Nothing -> error ("Bad base name " ++ fname)
  where
-  filename = Text.unpack $ finderBaseName <> ".nix"
+  fname = Text.unpack $ finderBaseName <> ".nix"
 
 data Command
   = Print LocationFinder
@@ -98,7 +98,7 @@ addCommand grm = command "add" $
     pure $ Add x
 
 listCommand :: [LocationType] -> Mod CommandFields Command
-listCommand ltps = command "list" $
+listCommand _ = command "list" $
   info (pure $ ListLocations) (progDesc "list the locations and their formats")
 
 parseConfig :: Parser Config
@@ -153,9 +153,9 @@ fetchFixText finder = do
   sha256 <- prefetchIO loc
   case sha256 of
     Nothing -> fail "Could not prefetch url."
-    Just sha256 -> do
+    Just sha256' -> do
       args <- getArgs
-      return $ renderFixNixExpr args loc sha256
+      return $ renderFixNixExpr args loc sha256'
  where
   renderFixNixExpr args loc sha256 = foldMap (<> "\n")
     [ "# Auto-generated with fixnix (version " <> textVersion <> ")"
@@ -205,10 +205,10 @@ runWithConfig cfg cmd = do
           return ()
 
   confirm :: String -> IO () -> IO ()
-  confirm help dothis
+  confirm help' dothis
     | cfgForce cfg = dothis
     | otherwise = do
-      hPutStr stderr (help ++ " [yes/no]: ")
+      hPutStr stderr (help' ++ " [yes/no]: ")
       fix $ \rec -> do
         answer <- Text.strip . Text.toLower <$> Text.getLine
         case answer of
