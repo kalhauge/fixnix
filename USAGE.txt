@@ -5,6 +5,7 @@ Usage: fixnix COMMAND
 Available options:
   -o,--fix-folder FOLDER   The relative path to the fix
                            folder. (default: "nix/fix/")
+  -f,--force               Don't ask anoying questions, just do!
   -h,--help                Show this help text
 
 Available commands:

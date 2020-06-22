@@ -20,7 +20,19 @@ Now run fixnix, the default behaviour is to fix a version of nixpkgs.
 
 # TODO's
 
-- Make the parsers of the locations explainable. This means that any 
+- [ ] Make an update function
+
+- [ ] Enable command line completions
+
+- [ ] Enable caching of commands.
+
+- [ ] Fix unpacking syntax
+
+- [ ] Make Github location easier to use with HEAD and interperations
+
+- [ ] Add E-Tag support: See [wiki](https://en.wikipedia.org/wiki/HTTP_ETag)
+
+- [x] Make the parsers of the locations explainable. This means that any
   defined parsser will know how to print it-self.
 
   For example the github parser should produce, something like:
@@ -34,4 +46,3 @@ Now run fixnix, the default behaviour is to fix a version of nixpkgs.
       - 'rev/<rev>'      where <rev> is a git revision
 
 
-- Add E-Tag support: See [wiki](https://en.wikipedia.org/wiki/HTTP_ETag)

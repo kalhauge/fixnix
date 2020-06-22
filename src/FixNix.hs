@@ -22,6 +22,7 @@ module FixNix where
 import           Data.Version
 import           Data.Maybe
 import           Data.Function
+import           Data.Foldable
 import           Data.Functor
 import           Control.Monad
 import           System.IO
@@ -55,6 +56,7 @@ import           FixNix.Locations
 
 data Config = Config
   { cfgFixFolder      :: !(Path Rel Dir)
+  , cfgForce          :: !Bool
   }
 
 cfgFilename :: Config -> LocationFinder -> Path Rel File
@@ -67,7 +69,7 @@ cfgFilename Config {..} lc@LocationFinder {..} =
 
 data Command
   = Print LocationFinder
-  | Add   [LocationFinder]
+  | Add [LocationFinder]
   | ListLocations
 
 readLocationFinder :: LocationG LocationFinder -> ReadM LocationFinder
@@ -101,18 +103,24 @@ listCommand ltps = command "list" $
 
 parseConfig :: Parser Config
 parseConfig = do
-  cfgFixFolder <- option (maybeReader parseRelDir) $
-    short 'o'
-    <> long "fix-folder"
-    <> hidden
-    <> value [reldir|nix/fix|]
-    <> metavar "FOLDER"
-    <> showDefault
-    <> help "The relative path to the fix folder."
+  cfgFixFolder <- option (maybeReader parseRelDir) $ fold
+    [ short 'o'
+    , long "fix-folder"
+    , hidden
+    , value [reldir|nix/fix|]
+    , metavar "FOLDER"
+    , showDefault
+    , help "The relative path to the fix folder."
+    ]
 
-  pure $ Config
-    { cfgFixFolder
-    }
+  cfgForce <- switch $ fold
+    [ short 'f'
+    , long "force"
+    , hidden
+    , help "Don't ask anoying questions, just do!"
+    ]
+
+  pure $ Config { .. }
 
 fixnixParserInfo :: [LocationType] -> ParserInfo (Config, Command)
 fixnixParserInfo ltps = info
@@ -161,6 +169,10 @@ fetchFixText finder = do
 run :: IO ()
 run = do
   (cfg@Config {..}, cmd) <- execParser $ fixnixParserInfo locations
+  runWithConfig cfg cmd
+
+runWithConfig :: Config -> Command -> IO ()
+runWithConfig cfg cmd = do
   case cmd of
     Print x -> do
       txt <- fetchFixText x
@@ -168,15 +180,17 @@ run = do
     Add xs -> do
       forM_ xs $ \x -> do
         txt <- fetchFixText x
-        writeDiff txt (cfgFilename cfg x)
+        writeDiff txt x
     ListLocations ->
       Text.putStr $ listLocations locations
 
  where
-  writeDiff :: Text -> Path Rel File -> IO ()
-  writeDiff txt file = do
+  writeDiff :: Text -> LocationFinder -> IO ()
+  writeDiff txt loc = do
+    let
+      file = cfgFilename cfg loc
+      filef = fromRelFile file
     createDirectoryIfMissing True (fromRelDir $ parent file)
-    let filef = fromRelFile file
     tryIOError (Text.readFile filef) >>= \case
       Left _ -> do
         hPutStrLn stderr "A new file."
@@ -191,15 +205,17 @@ run = do
           return ()
 
   confirm :: String -> IO () -> IO ()
-  confirm help dothis = do
-    hPutStr stderr (help ++ " [yes/no]: ")
-    fix $ \rec -> do
-      answer <- Text.strip . Text.toLower <$> Text.getLine
-      case answer of
-        "yes" -> dothis
-        "no" -> return ()
-        _ -> hPutStr stderr ("Please answer yes or no.") *> rec
-    hPutStrLn stderr ""
+  confirm help dothis
+    | cfgForce cfg = dothis
+    | otherwise = do
+      hPutStr stderr (help ++ " [yes/no]: ")
+      fix $ \rec -> do
+        answer <- Text.strip . Text.toLower <$> Text.getLine
+        case answer of
+          "yes" -> dothis
+          "no" -> return ()
+          _ -> hPutStr stderr ("Please answer yes or no.") *> rec
+      hPutStrLn stderr ""
 
 
 
