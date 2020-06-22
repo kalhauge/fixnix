@@ -26,11 +26,11 @@ Now run fixnix, the default behaviour is to fix a version of nixpkgs.
 
 - [ ] Enable caching of commands.
 
-- [ ] Fix unpacking syntax
-
-- [ ] Make Github location easier to use with HEAD and interperations
-
 - [ ] Add E-Tag support: See [wiki](https://en.wikipedia.org/wiki/HTTP_ETag)
+
+- [x] Fix unpacking syntax
+
+- [x] Make Github location easier to use with HEAD and interperations
 
 - [x] Make the parsers of the locations explainable. This means that any
   defined parsser will know how to print it-self.

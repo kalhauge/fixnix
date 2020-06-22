@@ -96,10 +96,10 @@ spec = do
         parse (parser (finderG locations) ()) "LOCATION" `shouldSucceedOn` p
 
     itShouldSucceedOn "name=github:nixos/nixpkgs/tags/20.03"
-    itShouldSucceedOn "name=!github:nixos/nixpkgs/tags/20.03"
-    itShouldSucceedOn "name=?github:nixos/nixpkgs/tags/20.03"
-    itShouldSucceedOn "name=!!github:nixos/nixpkgs/tags/20.03"
-    itShouldSucceedOn "!!github:nixos/nixpkgs/tags/20.03"
+    itShouldSucceedOn "name=%github:nixos/nixpkgs/tags/20.03"
+    itShouldSucceedOn "name=@github:nixos/nixpkgs/tags/20.03"
+    itShouldSucceedOn "name=+github:nixos/nixpkgs/tags/20.03"
+    itShouldSucceedOn "+github:nixos/nixpkgs/tags/20.03"
     itShouldSucceedOn "github:nixos/nixpkgs/tags/20.03"
 
   describe "description" do

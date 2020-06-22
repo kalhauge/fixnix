@@ -51,7 +51,7 @@ $(makeCoLimit ''Enumeration)
 spec :: Spec
 spec = do
   describeGrammar "github"
-    (defP $ Two (until1G "git-owner" '/') (until1G "git-repo" '/'))
+    (defP $ Two (until1G "git-owner" '/' <** "/") (until1G "git-repo" '/' <** "/"))
     [ "hello/world/" ]
     ( Just $ liftM2 (,)
       (Gen.text (Range.linear 0 10) Gen.unicode)

@@ -6,13 +6,13 @@ A location is parsed like this:
     where
       
       <mode> is the download mode of the location:
-          (('?'|'!!'|'!')|'')
+          (('@'|'%'|'+')|'')
       
       <git-commit> is a git commit:
-          ('heads/' <head> |'tags/' <tag> |'rev/' <rev> )
+          ('/tags/' <tag> |'/rev/' <rev> |('/' <magic> |$))
       
       <GitHub> is Connect to the github API.:
-          <git-owner> '/' <git-repo> '/' <git-commit> 
+          <git-owner> '/' <git-repo>  <git-commit> 
       
       <Hackage> is Connect to the hackage server.:
           <package-name> '/' <package-version> 
@@ -25,12 +25,12 @@ file a bug report to https://github.com/kalhauge/fixnix.
 
 ## GitHub (github, gh)
 
-    <git-owner> '/' <git-repo> '/' <git-commit> 
+    <git-owner> '/' <git-repo>  <git-commit> 
     
     where
       
       <git-commit> is a git commit:
-          ('heads/' <head> |'tags/' <tag> |'rev/' <rev> )
+          ('/tags/' <tag> |'/rev/' <rev> |('/' <magic> |$))
 
 Connect to the github API.
 
@@ -43,6 +43,18 @@ Accesss the tag of a github page.
     fetches: https://github.com/nixos/nixpkgs/archive/20.03.tar.gz
     name: nixpkgs_20.03
     do: Unpack
+
+Accesss the HEAD of a github page.
+
+    $ fixnix github:nixos/nixpkgs
+    
+    (unpure)
+
+Accesss the match of 'topic' to git ls-remote, fails if there are multiple matches.
+
+    $ fixnix github:nixos/nixpkgs/topic
+    
+    (unpure)
 
 Accesss the revision of a github page.
 

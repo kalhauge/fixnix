@@ -161,16 +161,16 @@ finderG ltps =
  where
   nameG :: LocationG (Maybe Text)
   nameG = defS CoMaybe
-    { ifJust = until1G "name" '='
+    { ifJust = until1IncG "name" '='
     , ifNothing = ""
     }
 
   locationModeG :: LocationG (Maybe LocationMode)
   locationModeG = Group "mode" "the download mode of the location" $ defS CoMaybe
     { ifJust = buildSum \LocationModeCoLim {..} ->
-      [ ifDownload =: "?"
-      , ifImport   =: "!!"
-      , ifUnpack   =: "!"
+      [ ifDownload =: "@"
+      , ifImport   =: "%"
+      , ifUnpack   =: "+"
       ]
     , ifNothing = ""
     }

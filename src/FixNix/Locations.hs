@@ -50,9 +50,9 @@ import FixNix.Grammar
 -- * Utils
 
 data GitCommit
-  = GitBranch    !Text
-  | GitTag       !Text
+  = GitTag       !Text
   | GitRevision  !Text
+  | GitMagic     !(Maybe Text)
   deriving (Show, Eq)
   --    | GitWildCard  !Text
 
@@ -77,6 +77,10 @@ githubLocation = LocationType {..} where
   locTypeExamples =
     [ Example "nixos/nixpkgs/tags/20.03"
         "Accesss the tag of a github page."
+    , Example "nixos/nixpkgs"
+        "Accesss the HEAD of a github page."
+    , Example "nixos/nixpkgs/topic"
+        "Accesss the match of 'topic' to git ls-remote, fails if there are multiple matches."
     , Example "nixos/nixpkgs/rev/1234abcd"
         "Accesss the revision of a github page."
     , Example "nixos/nixpkgs/heads/nixpkgs-20.03"
@@ -84,7 +88,7 @@ githubLocation = LocationType {..} where
     ]
   locTypeGrammar = defP $ Three
     (until1G "git-owner" '/')
-    (until1G "git-repo" '/')
+    ("/" **> until1G "git-repo" '/')
     gitCommitGrammar
 
   locTypeFinder a@(gitHubOwner, gitHubRepo, commit) = LocationFinder { .. }
@@ -107,16 +111,26 @@ githubLocation = LocationType {..} where
         { locBUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
         , locBSuffix = Just rev
         }
-      GitBranch branch -> Left $ do
+      -- GitBranch branch -> Left $ do
+      --   out <- readProcessStdout_
+      --     $ proc "git" ["ls-remote", Text.unpack baseUrl, Text.unpack branch]
+      --   case L.uncons . LazyText.words $ LazyText.decodeUtf8 out of
+      --     Just (LazyText.toStrict -> rev, _) -> return $ LocationBuilder
+      --       { locBUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
+      --       , locBSuffix = Just $ branch <> "_" <> (Text.take 6 rev)
+      --       }
+      --     Nothing ->
+      --       fail $ "Could not find branch: " ++ Text.unpack branch
+      GitMagic magic -> Left $ do
         out <- readProcessStdout_
-          $ proc "git" ["ls-remote", Text.unpack baseUrl, Text.unpack branch]
+          $ proc "git" ["ls-remote", Text.unpack baseUrl, maybe "HEAD" Text.unpack magic]
         case L.uncons . LazyText.words $ LazyText.decodeUtf8 out of
           Just (LazyText.toStrict -> rev, _) -> return $ LocationBuilder
             { locBUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
-            , locBSuffix = Just $ branch <> "_" <> (Text.take 6 rev)
+            , locBSuffix = Just $ foldMap (<> "_") magic <> (Text.take 6 rev)
             }
           Nothing ->
-            fail $ "Could not find branch: " ++ Text.unpack branch
+            fail $ "Could not find item: " ++ maybe "HEAD" Text.unpack magic
      where
       baseUrl = "https://github.com/" <> gitHubOwner <> "/" <> gitHubRepo
 
@@ -140,7 +154,7 @@ hackageLocation = LocationType {..} where
         "Access a package of a specific version "
     ]
   locTypeGrammar = defP $ Two
-    (until1G "package-name" '/')
+    (until1IncG "package-name" '/')
     (restG "package-version")
 
   locTypeFinder a@(name, version) = LocationFinder { .. }
@@ -213,7 +227,7 @@ hackageLocation = LocationType {..} where
 
 gitCommitGrammar :: LocationG GitCommit
 gitCommitGrammar = Group "git-commit" "a git commit" $ defS GitCommitCoLim
-  { ifGitBranch = "heads/" **> restG "head"
-  , ifGitTag = "tags/" **> restG "tag"
-  , ifGitRevision = "rev/" **> restG "rev"
+  { ifGitTag = "/tags/" **> restG "tag"
+  , ifGitRevision = "/rev/" **> restG "rev"
+  , ifGitMagic = maybeG ("/" **> restG "magic") endG
   }

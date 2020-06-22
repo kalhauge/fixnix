@@ -169,11 +169,11 @@ explainText =
   Text.pack . flip displayS "" . renderPretty 0.9 80 . explainGrammar
 --
 untilG :: Text -> Char -> LocationG Text
-untilG name csep = Simple ("<" <> name <> "> '" <> Text.singleton csep <> "'")
-  (P.try $ P.takeWhileP Nothing (/= csep) <* P.char csep)
+untilG name csep = Simple ("<" <> name <> ">")
+  (P.try $ P.takeWhileP Nothing (/= csep))
   (Op \txt -> if Text.all (/= csep) txt
     then Right $
-      B.fromText txt <> B.fromString [csep]
+      B.fromText txt
     else Left $
       "found " ++  show csep ++ " in " ++ show txt
       ++ ", but it is ended by " ++ show csep ++ "."
@@ -182,9 +182,26 @@ untilG name csep = Simple ("<" <> name <> "> '" <> Text.singleton csep <> "'")
 restG :: Text -> LocationG Text
 restG name = Simple ("<" <> name <> ">") (P.takeRest) (Op $ Right . B.fromText)
 
+endG :: LocationG ()
+endG = Simple "$" (P.eof) (Op $ Right . const "")
+
 until1G :: Text -> Char -> LocationG Text
-until1G name csep = Simple ("<" <> name <> "> '" <> Text.singleton csep <> "'")
-  (P.try $ P.takeWhile1P Nothing (/= csep) <* P.char csep)
+until1G name csep = Simple ("<" <> name <> ">")
+  (P.try $ P.takeWhile1P Nothing (/= csep))
+  (Op \txt -> if
+    | not (Text.all (/= csep) txt) ->
+      Left $ "found " ++  show csep ++ " in " ++ show txt
+        ++ ", but it is ended by " ++ show csep ++ "."
+    | Text.null txt ->
+      Left $ show txt ++ "is empty but should have atleast one element"
+    | otherwise ->
+      Right $ B.fromText txt
+  )
+
+
+until1IncG :: Text -> Char -> LocationG Text
+until1IncG name csep = Simple ("<" <> name <> "> '" <> Text.singleton csep <> "'")
+  (P.try $ P.takeWhile1P Nothing (/= csep) <* P.char csep )
   (Op \txt -> if
     | not (Text.all (/= csep) txt) ->
       Left $ "found " ++  show csep ++ " in " ++ show txt
@@ -194,6 +211,7 @@ until1G name csep = Simple ("<" <> name <> "> '" <> Text.singleton csep <> "'")
     | otherwise ->
       Right $ B.fromText txt <> B.fromString [csep]
   )
+
 --
 -- eitherG :: Grammar a -> Grammar b -> Grammar (Either a b)
 -- eitherG ifLeft ifRight = sumG EitherC {..}
