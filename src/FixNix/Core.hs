@@ -1,4 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE Rank2Types #-}
@@ -25,6 +26,7 @@ module FixNix.Core where
 -- base
 import           Data.Bifunctor
 import           Data.Maybe
+import           Data.Typeable
 import           Data.Functor
 import           Control.Applicative
 import           Data.Functor.Contravariant
@@ -60,12 +62,20 @@ import qualified Options.Applicative.Help.Pretty as D
 -- typed-process
 import           System.Process.Typed
 
+-- path
+import Path
+
 -- grammar
 import Control.Grammar
 import Control.Grammar.TH
 
 -- fixnix
 import FixNix.Grammar
+
+data Config = Config
+  { cfgFixFolder      :: !(Path Rel Dir)
+  , cfgForce          :: !Bool
+  }
 
 data LocationMode
   = Download
@@ -75,8 +85,6 @@ data LocationMode
   | Import
   -- ^ Download, Unpack, and import the location
   deriving (Show, Eq, Ord, Enum, Bounded)
-
-$(makeCoLimit ''LocationMode)
 
 -- | A location is a url with a name
 data Location = Location
@@ -99,20 +107,61 @@ data LocationBuilder = LocationBuilder
 -- | A location finder either knows the location of the data, or knows
 -- how to find the location.
 data LocationFinder  = LocationFinder
-  { finderIdentifier :: !Text
-    -- ^ The identifier of the location finder
-  , finderBaseName :: !Text
+  { finderBaseName :: !Text
     -- ^ The base name of the location, can be used to find filenames.
-  , finderLocationMode   :: !LocationMode
+  , finderLocationMode :: !LocationMode
     -- ^ If the finder should be unpack
   , finderLocation :: Either (IO LocationBuilder) LocationBuilder
     -- ^ The url of the location, might need an impure computation.
   }
 
-$(makeLimit ''LocationFinder)
+data TypedLocationFinder = forall a. (Show a, Eq a, Typeable a) => TypedLocationFinder
+  { finderLocationData     :: a
+  , finderLocationTypeName :: Text.Text
+  , finderLocationFinder   :: LocationFinder
+  }
+
+deriving instance Show TypedLocationFinder
+
+data LocationType = forall a. (Show a, Eq a, Typeable a) => LocationType (UnpackedLocationType a)
+
+-- | To define an new location type we use this data structure.
+data UnpackedLocationType a = UnpackedLocationType
+  { locTypeName          :: Text
+  -- ^ The name of the location type
+  , locTypePrefix        :: NE.NonEmpty Text
+  -- ^ The list of prefix used for invoking this type
+  , locTypeDocumentation :: Doc
+  -- ^ A documentation string
+  , locTypeExamples      :: [ Example ]
+  -- ^ A list of examples, that is both checked and presented to the user.
+  , locTypeCompleter     :: Config -> String -> IO [ String ]
+  -- ^ A function to complete the grammar
+  , locTypeGrammar       :: LocationG a
+  -- ^ A loc type printer-parser
+  , locTypeFinder        :: a -> LocationFinder
+  }
+
+-- | An Example is an identifier and a some help text.
+data Example = Example
+  { exampleIdentifier :: Text
+  -- ^ The identifier for location, should parse by the `locTypeParser`.
+  , exampleHelp       :: D.Doc
+  -- ^ The help string to understand the example.
+  }
+
 
 instance Show LocationFinder where
- show (LocationFinder {..}) = Text.unpack finderIdentifier
+ show (LocationFinder {..}) = Text.unpack $ finderBaseName
+
+cfgFilename :: Config -> LocationFinder -> Path Rel File
+cfgFilename Config {..} LocationFinder {..} =
+  case parseRelFile fname of
+   Just rf -> cfgFixFolder Path.</> rf
+   Nothing -> error ("Bad base name " ++ fname)
+ where
+  fname = Text.unpack $ finderBaseName <> ".nix"
+
 
 -- | Find a location
 buildLocation :: LocationFinder -> LocationBuilder -> Location
@@ -127,37 +176,27 @@ findLocation :: LocationFinder -> IO Location
 findLocation lf = fmap (buildLocation lf) . either id return $
   finderLocation lf
 
--- | To define an new location type we use this data structure.
-data LocationType = forall a. (Show a, Eq a) => LocationType
-  { locTypeName          :: Text
-  -- ^ The name of the location type
-  , locTypePrefix        :: NE.NonEmpty Text
-  -- ^ The list of prefix used for invoking this type
-  , locTypeDocumentation :: Doc
-  -- ^ A documentation string
-  , locTypeExamples      :: [ Example ]
-  -- ^ A list of examples, that is both checked and presented to the user.
-  , locTypeGrammar       :: LocationG a
-  -- ^ A loc type printer-parser
-  , locTypeFinder        :: a -> LocationFinder
-  }
+$(makeCoLimit ''LocationMode)
+$(makeLimit ''LocationFinder)
 
 -- | Grammar types
-finderG :: [LocationType] -> LocationG LocationFinder
+finderG :: [LocationType] -> LocationG TypedLocationFinder
 finderG ltps =
   iso
-    (\lt@LocationFinder {..} ->
+    (\tlf@(TypedLocationFinder _ _ LocationFinder {..}) ->
       ( Just finderBaseName
       , Just finderLocationMode
-      , lt
+      , tlf
       )
     )
-    (\(name, mode, a) -> a
-      { finderBaseName     = fromMaybe (finderBaseName a) name
-      , finderLocationMode = fromMaybe (finderLocationMode a) mode
+    (\(name, mode, tlf) -> tlf
+      { finderLocationFinder = let lf = finderLocationFinder tlf in lf
+        { finderBaseName     = fromMaybe (finderBaseName lf) name
+        , finderLocationMode = fromMaybe (finderLocationMode lf) mode
+        }
       }
     )
-  $ defP $ Three nameG locationModeG anyLocationG
+  $ defP $ Three nameG locationModeG anyTypedLocationG
  where
   nameG :: LocationG (Maybe Text)
   nameG = defS CoMaybe
@@ -175,21 +214,27 @@ finderG ltps =
     , ifNothing = ""
     }
 
-  anyLocationG :: LocationG LocationFinder
-  anyLocationG = Group "location" "any location" $ anyG
+  anyTypedLocationG :: LocationG (TypedLocationFinder)
+  anyTypedLocationG = Group "location" "any location" $ anyG
     [ case tp of
-        LocationType {..} ->
-          (anyG [ TerminalG t | t <- NE.toList locTypePrefix ])
-          **> ":" **>
-            (Group locTypeName locTypeDocumentation
-              (iso undefined locTypeFinder $ locTypeGrammar))
+        LocationType up ->
+          piso
+            (\TypedLocationFinder{..} ->
+              if locTypeName up == finderLocationTypeName
+              then cast finderLocationData
+              else Nothing
+            )
+            (\fld -> Just $ TypedLocationFinder fld (locTypeName up) (locTypeFinder up fld))
+          $ anyG [ TerminalG t | t <- NE.toList (locTypePrefix up)]
+            **> ":"
+            **> Group (locTypeName up) (locTypeDocumentation up) (locTypeGrammar up)
     | tp <- ltps
     ]
 
 
 -- | Pretty print the location type with examples
 describeLocationType :: LocationType -> Doc
-describeLocationType LocationType {..} = vcat
+describeLocationType (LocationType UnpackedLocationType {..}) = vcat
   [ hsep [ "##", ttext locTypeName, prefixList ]
   , ""
   , indent 4 $ explainGrammar locTypeGrammar
@@ -225,22 +270,9 @@ describeLocationType LocationType {..} = vcat
         , "do:" <+> D.string (show locMode)
         ]
 
--- | An Example is an identifier and a some help text.
-data Example = Example
-  { exampleIdentifier :: Text
-  -- ^ The identifier for location, should parse by the `locTypeParser`.
-  , exampleHelp       :: D.Doc
-  -- ^ The help string to understand the example.
-  }
-
--- | A missing utility of Megaparsec.
-parseEither :: P a -> String -> Text -> Either String a
-parseEither p str =
-  first P.errorBundlePretty . P.parse p str
-
 -- | Parse a Location Finder
 locationFinderP :: LocationType -> P LocationFinder
-locationFinderP LocationType {..} = do
+locationFinderP (LocationType UnpackedLocationType {..}) = do
   P.label "location type" $
     msum [ P.string' prfx | prfx <- NE.toList locTypePrefix ]
   P.char ':'

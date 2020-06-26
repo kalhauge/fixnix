@@ -28,6 +28,8 @@ import Type.Reflection
 
 import Test.HUnit.Lang
 
+import Path
+
 import FixNix
 import FixNix.Core
 import FixNix.Locations
@@ -36,7 +38,7 @@ import FixNix.Grammar
 import FixNix.GrammarSpec
 
 locationTypeSpec :: LocationType -> Spec
-locationTypeSpec (LocationType {..}) = describe (Text.unpack locTypeName) do
+locationTypeSpec (LocationType UnpackedLocationType {..}) = describe (Text.unpack locTypeName) do
   describeGrammar
     (Text.unpack locTypeName)
     locTypeGrammar
@@ -105,7 +107,15 @@ spec = do
   describe "description" do
     fs <- runIO (readFile "USAGE.txt")
     it "should equal the description in USAGE.txt" do
-      let a = execParserPure (prefs mempty) (fixnixParserInfo locations) ["-h"]
+      let a = execParserPure
+            (prefs mempty)
+            (fixnixParserInfo $ GlobalConfig
+              { cfgLocationTypes = locations
+              , cfgCache = [absdir|/home/user/.config/fixnix|]
+              , cfgHistory = [absdir|/home/user/.config/fixnix/history.txt|]
+              }
+            )
+            ["-h"]
       case a of
         Options.Applicative.Failure failure' -> do
           let (txt, s) = renderFailure failure' "fixnix"

@@ -5,13 +5,14 @@
 with pkgs;
 mkShell {
   buildInputs = [
-    (haskell.lib.dontCheck
-     (haskell.lib.disableLibraryProfiling
+    ( with haskell.lib;
+    dontHaddock (dontCheck (disableLibraryProfiling
       ((haskellPackages.extend (haskell.lib.packageSourceOverrides {
         fixnix = ./..;
         inherit (fix) grammar;
      })).fixnix)
-     ))
-  ];
+     )))
+   ];
+  shellHook = "source <(fixnix --bash-completion-enriched --bash-completion-script `which fixnix`)";
 }
 

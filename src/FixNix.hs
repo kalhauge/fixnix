@@ -24,6 +24,7 @@ import           Data.Maybe
 import           Data.Function
 import           Data.Foldable
 import           Data.Functor
+import qualified Data.List.NonEmpty as NE
 import           Control.Monad
 import           System.IO
 import           System.IO.Error
@@ -54,61 +55,89 @@ import           FixNix.Core
 import           FixNix.Grammar
 import           FixNix.Locations
 
-data Config = Config
-  { cfgFixFolder      :: !(Path Rel Dir)
-  , cfgForce          :: !Bool
+data GlobalConfig = GlobalConfig
+  { cfgLocationTypes :: ![LocationType]
+  , cfgCache :: !(Path Abs Dir)
+  , cfgHistory :: !(Path Abs File)
   }
 
-cfgFilename :: Config -> LocationFinder -> Path Rel File
-cfgFilename Config {..} LocationFinder {..} =
-  case parseRelFile fname of
-   Just rf -> cfgFixFolder </> rf
-   Nothing -> error ("Bad base name " ++ fname)
- where
-  fname = Text.unpack $ finderBaseName <> ".nix"
+cfgFinderGrammar :: GlobalConfig -> LocationG TypedLocationFinder
+cfgFinderGrammar cfg = finderG (cfgLocationTypes cfg)
+
+mkGlobalConfig :: IO GlobalConfig
+mkGlobalConfig = do
+  cache <- lookupEnv "XDG_CACHE_HOME" >>= \case
+    Just ch  -> parseAbsDir ch
+    Nothing -> lookupEnv "HOME" >>= \case
+      Just h -> (Path.</> [reldir|.config|]) <$> parseAbsDir h
+      Nothing -> fail "Neither XDG_CACHE_HOME or HOME set."
+
+  let
+    cfgCache = cache </> [reldir|fixnix|]
+    cfgLocationTypes = locations
+    cfgHistory = cfgCache </> [relfile|history.txt|]
+
+  tryIOError $ do
+    createDirectoryIfMissing True (fromAbsDir cfgCache)
+
+  return $ GlobalConfig { .. }
 
 data Command
-  = Print LocationFinder
-  | Add [LocationFinder]
+  = Print TypedLocationFinder
+  | Add [TypedLocationFinder]
   | ListLocations
 
-readLocationFinder :: LocationG LocationFinder -> ReadM LocationFinder
+readLocationFinder :: LocationG TypedLocationFinder -> ReadM TypedLocationFinder
 readLocationFinder grm = eitherReader $
   parseEither (parser grm ()) "LOCATION" . Text.pack
 
-argLocation :: LocationG LocationFinder -> Parser LocationFinder
-argLocation grm = argument (readLocationFinder grm) $
-  metavar "LOCATION"
-  <> help "The location to download (see 'fixnix list)"
+argLocation :: GlobalConfig -> Parser TypedLocationFinder
+argLocation cfg = argument (readLocationFinder (cfgFinderGrammar cfg)) $ fold
+  [ metavar "LOCATION"
+  , help "The location to download (see 'fixnix list')"
+  , completer . mkCompleter $ \(Text.pack -> s) -> do
+      history <- readHistory cfg
+      return . map Text.unpack . filter (Text.isPrefixOf s) $ history
+  ]
 
-printCommand :: LocationG LocationFinder -> Mod CommandFields Command
-printCommand grm = command "print" $
+
+    -- let
+    --   prefixes = map ((<> ":") . Text.unpack . NE.head . locTypePrefix) ls
+    --   valid = filter (\x -> s `isPrefix  )
+    -- return
+    -- [ a ++ x
+    -- | a <- map ((<>":") . ) ls
+    -- , x <- [ "1", "2" ]
+    -- ]
+printCommand :: GlobalConfig -> Mod CommandFields Command
+printCommand cfg = command "print" $
   info p (progDesc "print the fix-file to stdout")
  where
   p = do
-    x <- argLocation grm
+    x <- argLocation cfg
     pure $ Print x
 
-addCommand :: LocationG LocationFinder -> Mod CommandFields Command
-addCommand grm = command "add" $
+addCommand :: GlobalConfig -> Mod CommandFields Command
+addCommand cfg = command "add" $
   info p (progDesc "add/override fix-file(s) to the fix-folder")
  where
   p = do
-    x <- many $ argLocation grm
+    x <- many $ argLocation cfg
     pure $ Add x
 
-listCommand :: [LocationType] -> Mod CommandFields Command
+listCommand :: GlobalConfig -> Mod CommandFields Command
 listCommand _ = command "list" $
   info (pure $ ListLocations) (progDesc "list the locations and their formats")
 
-parseConfig :: Parser Config
-parseConfig = do
+parseConfig :: GlobalConfig -> Parser Config
+parseConfig _ = do
   cfgFixFolder <- option (maybeReader parseRelDir) $ fold
     [ short 'o'
     , long "fix-folder"
     , hidden
     , value [reldir|nix/fix|]
     , metavar "FOLDER"
+    , action "directory"
     , showDefault
     , help "The relative path to the fix folder."
     ]
@@ -122,17 +151,17 @@ parseConfig = do
 
   pure $ Config { .. }
 
-fixnixParserInfo :: [LocationType] -> ParserInfo (Config, Command)
-fixnixParserInfo ltps = info
-    (((,) <$> parseConfig <*>
-      hsubparser (printCommand grm <> addCommand grm <> listCommand ltps)
-    ) <**>
-    helper) $
-  fullDesc
-  <> header ("fixnix - a nix expression fixer (version " ++ showVersion Paths_fixnix.version ++ ")")
-  <> footerDoc (Just mempty)
-
- where grm = finderG ltps
+fixnixParserInfo :: GlobalConfig -> ParserInfo (Config, Command)
+fixnixParserInfo cfg = info
+  (((,)
+    <$> parseConfig cfg
+    <*> hsubparser (printCommand cfg <> addCommand cfg <> listCommand cfg)
+    ) <**> helper)
+  $ fold
+  [ fullDesc
+  , header ("fixnix - a nix expression fixer (version " ++ showVersion Paths_fixnix.version ++ ")")
+  , footerDoc (Just mempty)
+  ]
 
 listLocations :: [LocationType] -> Text
 listLocations ltps = Text.pack . flip D.displayS "" . D.renderPretty 0.9 80 $ D.vsep
@@ -147,13 +176,19 @@ listLocations ltps = Text.pack . flip D.displayS "" . D.renderPretty 0.9 80 $ D.
   , D.vcat $ map describeLocationType ltps
   ]
 
-fetchFixText :: LocationFinder -> IO Text
-fetchFixText finder = do
-  loc <- findLocation finder
+fetchFixText :: GlobalConfig -> TypedLocationFinder -> IO Text
+fetchFixText gcfg finder = do
+  loc <- findLocation (finderLocationFinder finder)
   sha256 <- prefetchIO loc
   case sha256 of
     Nothing -> fail "Could not prefetch url."
     Just sha256' -> do
+      txt <- case prettyText (cfgFinderGrammar gcfg) finder of
+        Right txt -> return txt
+        Left msg -> error ("Unexpected problem with location finder: " ++ msg)
+
+      appendHistory gcfg txt
+
       args <- getArgs
       return $ renderFixNixExpr args loc sha256'
  where
@@ -165,30 +200,44 @@ fetchFixText finder = do
    where
     textVersion = Text.pack $ showVersion Paths_fixnix.version
 
+
+appendHistory :: GlobalConfig -> Text -> IO ()
+appendHistory cfg txt = do
+  Text.appendFile (fromAbsFile (cfgHistory cfg)) (txt <> "\n")
+
+readHistory :: GlobalConfig -> IO [Text]
+readHistory cfg = do
+  tryIOError (Text.readFile . fromAbsFile $ cfgHistory cfg) <&> \case
+    Left _ -> []
+    Right txt -> Text.lines txt
+
 -- | Run the io
 run :: IO ()
 run = do
-  (cfg@Config {..}, cmd) <- execParser $ fixnixParserInfo locations
-  runWithConfig cfg cmd
+  globalcfg <- mkGlobalConfig
+  (cfg, cmd) <- execParser
+    . fixnixParserInfo
+    $ globalcfg
 
-runWithConfig :: Config -> Command -> IO ()
-runWithConfig cfg cmd = do
+  runWithConfig globalcfg cfg cmd
+
+runWithConfig :: GlobalConfig -> Config -> Command -> IO ()
+runWithConfig globalcfg cfg cmd = do
   case cmd of
     Print x -> do
-      txt <- fetchFixText x
+      txt <- fetchFixText globalcfg x
       Text.putStr txt
     Add xs -> do
       forM_ xs $ \x -> do
-        txt <- fetchFixText x
+        txt <- fetchFixText globalcfg x
         writeDiff txt x
     ListLocations ->
       Text.putStr $ listLocations locations
 
  where
-  writeDiff :: Text -> LocationFinder -> IO ()
   writeDiff txt loc = do
     let
-      file = cfgFilename cfg loc
+      file = cfgFilename cfg (finderLocationFinder loc)
       filef = fromRelFile file
     createDirectoryIfMissing True (fromRelDir $ parent file)
     tryIOError (Text.readFile filef) >>= \case

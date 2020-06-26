@@ -12,20 +12,25 @@ A location is parsed like this:
           ('/tags/' <tag> |'/rev/' <rev> |('/' <magic> |$))
       
       <GitHub> is Connect to the github API.:
-          <git-owner> '/' <git-repo>  <git-commit> 
+          <git-owner> '/'  <git-repo>  <git-commit> 
       
       <Hackage> is Connect to the hackage server.:
           <package-name> '/' <package-version> 
       
+      <Nixpkgs> is Download a nix-channel.:
+          ('unstable'|<nixpkgs-version>)
+      
       <location> is any location:
-          (('github'|'gh') ':'  <GitHub> |('hackage'|'h') ':'  <Hackage> )
+          (('github'|'gh') ':'  <GitHub> 
+          |(('hackage'|'h') ':'  <Hackage> 
+           |('nixpkgs'|('nix'|'n')) ':'  <Nixpkgs> ))
 
 Below is a list of defined locations. If the list is incomplete please
 file a bug report to https://github.com/kalhauge/fixnix.
 
 ## GitHub (github, gh)
 
-    <git-owner> '/' <git-repo>  <git-commit> 
+    <git-owner> '/'  <git-repo>  <git-commit> 
     
     where
       
@@ -89,3 +94,26 @@ Access a package of a specific version
     fetches: https://hackage.haskell.org/package/hspec-hedgehog-0.0.1.2/hspec-hedgehog-0.0.1.2.tar.gz
     name: hspec-hedgehog_0.0.1.2
     do: Unpack
+
+## Nixpkgs (nixpkgs, nix, n)
+
+    ('unstable'|<nixpkgs-version>)
+    
+    where
+      
+
+Download a nix-channel.
+
+### Examples:
+
+Download version 20.03
+
+    $ fixnix nixpkgs:20.03
+    
+    (unpure)
+
+Download unstable version
+
+    $ fixnix nixpkgs:unstable
+    
+    (unpure)

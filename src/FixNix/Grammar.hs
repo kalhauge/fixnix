@@ -1,4 +1,5 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE GADTs #-}
@@ -29,7 +30,9 @@ module FixNix.Grammar where
 
 -- base
 import           Data.Void
+import           Data.Typeable
 import           Data.String
+import           Data.Bifunctor
 import           Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NE
 import           Data.Functor
@@ -79,10 +82,10 @@ data LocationG a where
   ChooseG   :: LocationG (Either a a) -> LocationG a
   LocProdG :: ProdG LocationG a -> LocationG a
   LocSumG  :: SumG LocationG a -> LocationG a
-  LocIsoG  :: (b -> a) -> (a -> b) -> LocationG a -> LocationG b
+  LocPIsoG  :: (b -> Maybe a) -> (a -> Maybe b) -> LocationG a -> LocationG b
 
 instance HasIso LocationG where
-  iso = LocIsoG
+  iso ba ab = LocPIsoG (Just . ba) (Just . ab)
 
 instance HasProdG LocationG LocationG where
   prodG a = LocProdG (ProdG a)
@@ -108,7 +111,7 @@ parser grm = case grm of
   LocProdG d -> unfoldProdG parser d
   LocSumG d -> unfoldSumG parser d
   ChooseG gaa -> \() -> either id id <$> parser gaa ()
-  LocIsoG _ ab ga -> \() -> ab <$> parser ga ()
+  LocPIsoG _ ab ga -> \() -> maybe mzero pure . ab =<< parser ga ()
 
 -- | We can pretty print a grammar
 render :: LocationG a -> B a
@@ -127,12 +130,28 @@ render grm = case grm of
       let ea = getOp (render gaa)
       ea (Right a) <|> ea (Left a)
 
-  LocIsoG ba _ (render -> fa) ->
-    contramap ba fa
+  LocPIsoG ba _ (render -> fa) ->
+    Op (\b -> maybe (Left "nothing") (getOp fa) $ ba b)
+
 
 prettyText :: LocationG a -> a -> Either String Text
 prettyText = buildToText . render
---
+
+prettyText' :: LocationG a -> a -> Text
+prettyText' grm a = case buildToText (render grm) a of
+  Right x -> x
+  Left msg -> error $ "Unexpected error whilw printing:" ++ msg
+
+parseText' :: LocationG a -> Text -> a
+parseText' grm a = case parseEither (parser grm ()) "GRAMMA" a of
+  Right x -> x
+  Left msg -> error $ "Unexpected error while parseing:" ++ msg
+
+-- | A missing utility of Megaparsec.
+parseEither :: P a -> String -> Text -> Either String a
+parseEither p str =
+  first P.errorBundlePretty . P.parse p str
+
 explain :: LocationG a -> Writer [(Text, Doc)] Doc
 explain = \case
   TerminalG t -> return $ D.squote <> D.string (Text.unpack t) <> D.squote
@@ -148,7 +167,7 @@ explain = \case
   LocSumG d -> do
     hl <- sequence $ inspectSumG explain d
     return $ D.encloseSep "(" ")" "|" hl
-  LocIsoG _ _ ga -> explain ga
+  LocPIsoG _ _ ga -> explain ga
 
 explainGrammar :: LocationG a -> Doc
 explainGrammar g =
@@ -211,7 +230,6 @@ until1IncG name csep = Simple ("<" <> name <> "> '" <> Text.singleton csep <> "'
     | otherwise ->
       Right $ B.fromText txt <> B.fromString [csep]
   )
-
 --
 -- eitherG :: Grammar a -> Grammar b -> Grammar (Either a b)
 -- eitherG ifLeft ifRight = sumG EitherC {..}
@@ -228,6 +246,10 @@ anyG = \case
     , ifRight = anyG as
     }
   [] -> Simple "or fail" (fail "expected something else") (Op . const $ error "expected something else")
+
+piso :: (b -> Maybe a) -> (a -> Maybe b) -> LocationG a -> LocationG b
+piso = LocPIsoG
+
 --
 -- (...) = (.) . (.)
 --

@@ -18,7 +18,7 @@ module FixNix.Locations where
 
 -- base
 import           Data.Foldable
-import           Control.Applicative
+import           Control.Applicative hiding ((<**>))
 import           Data.Functor.Contravariant
 import qualified Data.List.NonEmpty as NE
 import qualified Data.List as L
@@ -39,15 +39,29 @@ import           Options.Applicative.Help.Pretty as D hiding (text)
 -- typed-process
 import           System.Process.Typed
 
+
 -- grammar
 import Control.Grammar
 import Control.Grammar.TH
+
+-- directory
+import System.Directory
+
+-- path
+import Path
 
 -- fixnix
 import FixNix.Core
 import FixNix.Grammar
 
 -- * Utils
+
+data GitHubRepo = GitHubRepo
+  { gitHubOwner :: !Text
+  , gitHubRepo  :: !Text
+  } deriving (Show, Eq)
+
+$(makeLimit ''GitHubRepo)
 
 data GitCommit
   = GitTag       !Text
@@ -58,18 +72,65 @@ data GitCommit
 
 $(makeCoLimit ''GitCommit)
 
+gitHubRepoGrammar = defP $ GitHubRepoLim
+  { onGitHubOwner = until1G "git-owner" '/' <** "/"
+  , onGitHubRepo  = until1G "git-repo" '/'
+  }
+
+gitCommitGrammar :: LocationG GitCommit
+gitCommitGrammar = Group "git-commit" "a git commit" $ defS GitCommitCoLim
+  { ifGitTag = "/tags/" **> restG "tag"
+  , ifGitRevision = "/rev/" **> restG "rev"
+  , ifGitMagic = maybeG ("/" **> restG "magic") endG
+  }
+
+gitHubBaseUrl GitHubRepo {..} =
+  "https://github.com/" <> gitHubOwner <> "/" <> gitHubRepo
+
+githubLocationFinder :: GitHubRepo -> GitCommit -> Either (IO LocationBuilder) LocationBuilder
+githubLocationFinder ghr = \case
+  GitTag tag -> Right $ LocationBuilder
+    { locBUrl = baseUrl <> "/archive/" <> tag <> ".tar.gz"
+    , locBSuffix = Just tag
+    }
+  GitRevision rev -> Right $ LocationBuilder
+    { locBUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
+    , locBSuffix = Just rev
+    }
+  GitMagic magic -> Left $ do
+    out <- readProcessStdout_
+      $ proc "git" ["ls-remote", Text.unpack baseUrl, maybe "HEAD" Text.unpack magic]
+    case L.uncons . LazyText.words $ LazyText.decodeUtf8 out of
+      Just (LazyText.toStrict -> rev, _) -> return $ LocationBuilder
+        { locBUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
+        , locBSuffix = Just $
+          foldMap (\m -> cleanPackageName m <> "_") magic <> (Text.take 6 rev)
+        }
+      Nothing ->
+        fail $ "Could not find item: " ++ maybe "HEAD" Text.unpack magic
+ where
+  baseUrl = gitHubBaseUrl ghr
+  cleanPackageName = Text.map (\c -> if c `L.elem` ("/" :: String) then '+' else c)
+
+data Nixpkgs
+  = NixUnstable
+  | NixVersion   !Text
+  deriving (Show, Eq)
+
+$(makeCoLimit ''Nixpkgs)
 
 -- * Locations
 locations :: [ LocationType ]
 locations =
   [ githubLocation
   , hackageLocation
+  , nixpkgsLocation
   ]
 
 -- | GitHub have an intersting API for connecting and downloading branches
 -- and tags.
 githubLocation :: LocationType
-githubLocation = LocationType {..} where
+githubLocation = LocationType UnpackedLocationType {..} where
   locTypeName = "GitHub"
   locTypePrefix = "github" NE.:| ["gh"]
   locTypeDocumentation =
@@ -86,65 +147,16 @@ githubLocation = LocationType {..} where
     , Example "nixos/nixpkgs/heads/nixpkgs-20.03"
         $ paragraph "Accesss the branch of a github page. It will use `git ls-remote` to fix the current revision."
     ]
-  locTypeGrammar = defP $ Three
-    (until1G "git-owner" '/')
-    ("/" **> until1G "git-repo" '/')
-    gitCommitGrammar
-
-  locTypeFinder a@(gitHubOwner, gitHubRepo, commit) = LocationFinder { .. }
+  locTypeGrammar = gitHubRepoGrammar <**> gitCommitGrammar
+  locTypeCompleter = \_ s -> return [s]
+  locTypeFinder (gh@GitHubRepo {..}, commit) = LocationFinder { .. }
    where
     finderBaseName = gitHubRepo
-    finderIdentifier =
-      case prettyText locTypeGrammar a of
-        Right ga -> ga
-        Left  msg -> error $
-          "Grammar for " <> Text.unpack locTypeName
-          <> " is broken, please report!\n -  " <> msg
-
     finderLocationMode   = Unpack
-    finderLocation = case commit of
-      GitTag tag -> Right $ LocationBuilder
-        { locBUrl = baseUrl <> "/archive/" <> tag <> ".tar.gz"
-        , locBSuffix = Just tag
-        }
-      GitRevision rev -> Right $ LocationBuilder
-        { locBUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
-        , locBSuffix = Just rev
-        }
-      -- GitBranch branch -> Left $ do
-      --   out <- readProcessStdout_
-      --     $ proc "git" ["ls-remote", Text.unpack baseUrl, Text.unpack branch]
-      --   case L.uncons . LazyText.words $ LazyText.decodeUtf8 out of
-      --     Just (LazyText.toStrict -> rev, _) -> return $ LocationBuilder
-      --       { locBUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
-      --       , locBSuffix = Just $ branch <> "_" <> (Text.take 6 rev)
-      --       }
-      --     Nothing ->
-      --       fail $ "Could not find branch: " ++ Text.unpack branch
-      GitMagic magic -> Left $ do
-        out <- readProcessStdout_
-          $ proc "git" ["ls-remote", Text.unpack baseUrl, maybe "HEAD" Text.unpack magic]
-        case L.uncons . LazyText.words $ LazyText.decodeUtf8 out of
-          Just (LazyText.toStrict -> rev, _) -> return $ LocationBuilder
-            { locBUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
-            , locBSuffix = Just $ foldMap (<> "_") magic <> (Text.take 6 rev)
-            }
-          Nothing ->
-            fail $ "Could not find item: " ++ maybe "HEAD" Text.unpack magic
-     where
-      baseUrl = "https://github.com/" <> gitHubOwner <> "/" <> gitHubRepo
+    finderLocation = githubLocationFinder gh commit
 
-
--- builtins.fetchTarball {
---   name   = "hspec-hedgehog-0.0.1.2";
---   url    = "https://hackage.haskell.org/package/hspec-hedgehog-0.0.1.2/hspec-hedgehog-0.0.1.2.tar.gz";
---   sha256 = "0b1wzhyccijf22q8aac3vj44z0fsq1g0j8saq7vzcd0r97a28r02";
--- }
-
--- | GitHub have an intersting API for connecting and downloading branches
--- and tags.
 hackageLocation :: LocationType
-hackageLocation = LocationType {..} where
+hackageLocation = LocationType UnpackedLocationType {..} where
   locTypeName = "Hackage"
   locTypePrefix = "hackage" NE.:| ["h"]
   locTypeDocumentation =
@@ -157,16 +169,17 @@ hackageLocation = LocationType {..} where
     (until1IncG "package-name" '/')
     (restG "package-version")
 
-  locTypeFinder a@(name, version) = LocationFinder { .. }
+  locTypeCompleter = \_ s -> do
+    -- let f = Path.fromAbsDir (cfgCache cfg)
+    -- createDirectoryIfMissing True f
+    -- out <- readProcessStdout_
+    --   $ proc "git" ["ls-remote", Text.unpack baseUrl, maybe "HEAD" Text.unpack magic]
+
+    return [s]
+
+  locTypeFinder (name, version) = LocationFinder { .. }
    where
     finderBaseName = name
-    finderIdentifier =
-      case prettyText locTypeGrammar a of
-        Right ga -> ga
-        Left msg -> error $
-          "Grammar for " <> Text.unpack locTypeName
-          <> " is broken, please report!\n -  " <> msg
-
     finderLocationMode   = Unpack
     finderLocation = return $ LocationBuilder
       { locBUrl = "https://hackage.haskell.org/package/" <> packagename <> "/" <>
@@ -177,57 +190,37 @@ hackageLocation = LocationType {..} where
       packagename = name <> "-" <> version
 
 
--- -- | Nixpkgs
--- nixpkgsLocation :: LocationType
--- nixpkgsLocation = LocationType {..} where
---   locName = "Nixpkgs"
---   locPrefix = "nixpkgs" NE.:| ["nixos", "nix", "n"]
---   locDocumentation =
---     "Fix a version of the nixpkgs."
---   locExamples =
---     [ Example "heads/nixos-20.03"
---         "Use the 'nixos-20.03' branch."
---     , Example "heads/nixos-unstable"
---         "Use the 'nixos-unstable' branch."
---     ]
---   locParser = gitCommitP
---
---   locPrinter commit =
---     case commit of
---       GitBranch   branch -> "heads/" <> Builder.fromText branch
---       GitTag      tag    -> "tags/"  <> Builder.fromText tag
---       GitRevision rev    -> "rev/"  <> Builder.fromText rev
---
---   locToUrl commit = do
---     case commit of
---       GitTag tag -> PureUrl
---         ( base <> "/archive/" <> tag <> ".tar.gz"
---         , gitHubRepo <> "_" <> tag
---         )
---       GitRevision rev -> PureUrl
---         ( base <> "/archive/" <> rev <> ".tar.gz"
---         , gitHubRepo <> "_" <> rev
---         )
---       GitBranch branch -> UnpureUrl $ do
---         out <- readProcessStdout_
---           $ proc "git" ["ls-remote", Text.unpack base, Text.unpack branch]
---         case L.uncons . LazyText.words $ LazyText.decodeUtf8 out of
---           Just (LazyText.toStrict -> rev, _) -> return
---             ( base <> "/archive/" <> rev <> ".tar.gz"
---             , gitHubRepo <> "_" <> branch <> "_" <> (Text.take 6 rev)
---             )
---           Nothing ->
---             fail $ "Could not find branch: " ++ Text.unpack branch
---    where
---     gitHubOwner = "nixos"
---     gitHubRepo = "nixpkgs"
---     base = "https://github.com/" <> gitHubOwner <> "/" <> gitHubRepo
+nixpkgsLocation :: LocationType
+nixpkgsLocation = LocationType UnpackedLocationType {..} where
+  locTypeName = "Nixpkgs"
+  locTypePrefix = "nixpkgs" NE.:| ["nix", "n"]
+  locTypeDocumentation =
+    "Download a nix-channel."
+  locTypeExamples =
+    [ Example "20.03"
+        "Download version 20.03"
+    , Example "unstable"
+        "Download unstable version"
+    ]
+  locTypeGrammar = defS $ NixpkgsCoLim
+    "unstable"
+    (restG "nixpkgs-version")
+
+  locTypeCompleter = \_ s -> do
+    -- let f = Path.fromAbsDir (cfgCache cfg)
+    -- createDirectoryIfMissing True f
+    -- out <- readProcessStdout_
+    --   $ proc "git" ["ls-remote", Text.unpack baseUrl, maybe "HEAD" Text.unpack magic]
+
+    return [s]
+
+  locTypeFinder np = LocationFinder { .. }
+   where
+    finderBaseName = "nixpkgs"
+    finderLocationMode = Import
+    finderLocation = githubLocationFinder (GitHubRepo "nixos" "nixpkgs") $ case np of
+      NixUnstable -> GitMagic . Just $ "heads/nixos-unstable"
+      NixVersion v -> GitMagic . Just $ "heads/nixos-" <> v
 
 
 
-gitCommitGrammar :: LocationG GitCommit
-gitCommitGrammar = Group "git-commit" "a git commit" $ defS GitCommitCoLim
-  { ifGitTag = "/tags/" **> restG "tag"
-  , ifGitRevision = "/rev/" **> restG "rev"
-  , ifGitMagic = maybeG ("/" **> restG "magic") endG
-  }
