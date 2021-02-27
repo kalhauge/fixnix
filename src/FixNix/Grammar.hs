@@ -1,25 +1,16 @@
 {-# LANGUAGE ApplicativeDo #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE MultiWayIf #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE GeneralisedNewtypeDeriving #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE BlockArguments #-}
-{-# LANGUAGE TypeFamilies #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FunctionalDependencies #-}
-{-# LANGUAGE EmptyCase #-}
-{-# LANGUAGE TupleSections #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE QuasiQuotes #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE NamedFieldPuns #-}
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE ViewPatterns #-}
 -- |
 -- Module      :  FixNix.Grammar
@@ -131,7 +122,7 @@ render grm = case grm of
       ea (Right a) <|> ea (Left a)
 
   LocPIsoG ba _ (render -> fa) ->
-    Op (\b -> maybe (Left "nothing") (getOp fa) $ ba b)
+    Op (maybe (Left "nothing") (getOp fa) . ba)
 
 
 prettyText :: LocationG a -> a -> Either String Text
@@ -172,7 +163,7 @@ explain = \case
 explainGrammar :: LocationG a -> Doc
 explainGrammar g =
   vsep
-  [ nest 4 $ doc
+  [ nest 4 doc
   , ""
   , "where"
   , indent 2 $ vsep
@@ -199,10 +190,10 @@ untilG name csep = Simple ("<" <> name <> ">")
   )
 
 restG :: Text -> LocationG Text
-restG name = Simple ("<" <> name <> ">") (P.takeRest) (Op $ Right . B.fromText)
+restG name = Simple ("<" <> name <> ">") P.takeRest (Op $ Right . B.fromText)
 
 endG :: LocationG ()
-endG = Simple "$" (P.eof) (Op $ Right . const "")
+endG = Simple "$" P.eof (Op $ Right . const "")
 
 until1G :: Text -> Char -> LocationG Text
 until1G name csep = Simple ("<" <> name <> ">")

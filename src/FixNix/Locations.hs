@@ -104,7 +104,7 @@ githubLocationFinder ghr = \case
       Just (LazyText.toStrict -> rev, _) -> return $ LocationBuilder
         { locBUrl = baseUrl <> "/archive/" <> rev <> ".tar.gz"
         , locBSuffix = Just $
-          foldMap (\m -> cleanPackageName m <> "_") magic <> (Text.take 6 rev)
+          foldMap (\m -> cleanPackageName m <> "_") magic <> Text.take 6 rev
         }
       Nothing ->
         fail $ "Could not find item: " ++ maybe "HEAD" Text.unpack magic
@@ -169,7 +169,7 @@ hackageLocation = LocationType UnpackedLocationType {..} where
     (until1IncG "package-name" '/')
     (restG "package-version")
 
-  locTypeCompleter = \_ s -> do
+  locTypeCompleter = \_ s ->
     -- let f = Path.fromAbsDir (cfgCache cfg)
     -- createDirectoryIfMissing True f
     -- out <- readProcessStdout_
@@ -206,7 +206,7 @@ nixpkgsLocation = LocationType UnpackedLocationType {..} where
     "unstable"
     (restG "nixpkgs-version")
 
-  locTypeCompleter = \_ s -> do
+  locTypeCompleter = \_ s ->
     -- let f = Path.fromAbsDir (cfgCache cfg)
     -- createDirectoryIfMissing True f
     -- out <- readProcessStdout_

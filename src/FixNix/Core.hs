@@ -152,15 +152,13 @@ data Example = Example
 
 
 instance Show LocationFinder where
- show (LocationFinder {..}) = Text.unpack $ finderBaseName
+ show LocationFinder {..} = Text.unpack finderBaseName
 
 cfgFilename :: Config -> LocationFinder -> Path Rel File
-cfgFilename Config {..} LocationFinder {..} =
-  case parseRelFile fname of
-   Just rf -> cfgFixFolder Path.</> rf
-   Nothing -> error ("Bad base name " ++ fname)
- where
-  fname = Text.unpack $ finderBaseName <> ".nix"
+cfgFilename Config {..} LocationFinder {..} = case parseRelFile fname of
+  Just rf -> cfgFixFolder Path.</> rf
+  Nothing -> error ("Bad base name " ++ fname)
+  where fname = Text.unpack $ finderBaseName <> ".nix"
 
 
 -- | Find a location
@@ -214,7 +212,7 @@ finderG ltps =
     , ifNothing = ""
     }
 
-  anyTypedLocationG :: LocationG (TypedLocationFinder)
+  anyTypedLocationG :: LocationG TypedLocationFinder
   anyTypedLocationG = Group "location" "any location" $ anyG
     [ case tp of
         LocationType up ->

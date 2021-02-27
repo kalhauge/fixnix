@@ -77,7 +77,7 @@ mkGlobalConfig = do
     cfgLocationTypes = locations
     cfgHistory = cfgCache </> [relfile|history.txt|]
 
-  tryIOError $ do
+  tryIOError $
     createDirectoryIfMissing True (fromAbsDir cfgCache)
 
   return $ GlobalConfig { .. }
@@ -100,13 +100,12 @@ argLocation cfg = argument (readLocationFinder (cfgFinderGrammar cfg)) $ fold
       return . map Text.unpack . filter (Text.isPrefixOf s) $ history
   ]
 
-
     -- let
     --   prefixes = map ((<> ":") . Text.unpack . NE.head . locTypePrefix) ls
     --   valid = filter (\x -> s `isPrefix  )
     -- return
     -- [ a ++ x
-    -- | a <- map ((<>":") . ) ls
+    -- - | a <- map ((<>":") . ) ls
     -- , x <- [ "1", "2" ]
     -- ]
 printCommand :: GlobalConfig -> Mod CommandFields Command
@@ -127,7 +126,7 @@ addCommand cfg = command "add" $
 
 listCommand :: GlobalConfig -> Mod CommandFields Command
 listCommand _ = command "list" $
-  info (pure $ ListLocations) (progDesc "list the locations and their formats")
+  info (pure ListLocations) (progDesc "list the locations and their formats")
 
 parseConfig :: GlobalConfig -> Parser Config
 parseConfig _ = do
@@ -202,11 +201,11 @@ fetchFixText gcfg finder = do
 
 
 appendHistory :: GlobalConfig -> Text -> IO ()
-appendHistory cfg txt = do
+appendHistory cfg txt =
   Text.appendFile (fromAbsFile (cfgHistory cfg)) (txt <> "\n")
 
 readHistory :: GlobalConfig -> IO [Text]
-readHistory cfg = do
+readHistory cfg =
   tryIOError (Text.readFile . fromAbsFile $ cfgHistory cfg) <&> \case
     Left _ -> []
     Right txt -> Text.lines txt
@@ -222,15 +221,14 @@ run = do
   runWithConfig globalcfg cfg cmd
 
 runWithConfig :: GlobalConfig -> Config -> Command -> IO ()
-runWithConfig globalcfg cfg cmd = do
+runWithConfig globalcfg cfg cmd =
   case cmd of
     Print x -> do
       txt <- fetchFixText globalcfg x
       Text.putStr txt
-    Add xs -> do
-      forM_ xs $ \x -> do
-        txt <- fetchFixText globalcfg x
-        writeDiff txt x
+    Add xs -> forM_ xs \x -> do
+      txt <- fetchFixText globalcfg x
+      writeDiff txt x
     ListLocations ->
       Text.putStr $ listLocations locations
 
@@ -263,7 +261,7 @@ runWithConfig globalcfg cfg cmd = do
         case answer of
           "yes" -> dothis
           "no" -> return ()
-          _ -> hPutStr stderr ("Please answer yes or no.") *> rec
+          _ -> hPutStr stderr "Please answer yes or no." *> rec
       hPutStrLn stderr ""
 
 
