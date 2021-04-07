@@ -1,4 +1,4 @@
 {
   nixpkgs = import ./nixpkgs.nix;
-  grammar = ../../../grammar;
+  grammar = import ./grammar.nix;
 }

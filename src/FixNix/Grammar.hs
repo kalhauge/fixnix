@@ -92,7 +92,8 @@ instance HasSumG LocationG LocationG where
 --
 instance IsString (LocationG ()) where
   fromString = TerminalG . Text.pack
---
+
+
 -- | We can parse a grammar
 parser :: LocationG a -> () -> P a
 parser grm = case grm of
@@ -113,9 +114,10 @@ render grm = case grm of
     render a
   Simple _ _ b ->
     b
-  LocProdG d -> Op (getAp . foldProdG (\ta a -> Ap $ getOp (render ta) a) d)
-  LocSumG d -> Op (foldSumG (getOp . render) d)
-
+  LocProdG d ->
+    Op (getAp . foldProdG (\ta a -> Ap $ getOp (render ta) a) d)
+  LocSumG d ->
+    Op (foldSumG (getOp . render) d)
   ChooseG gaa ->
     Op \a -> do
       let ea = getOp (render gaa)
