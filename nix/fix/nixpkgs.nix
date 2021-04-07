@@ -1,8 +1,8 @@
 # Auto-generated with fixnix (version 0.0.0)
-# add github:nixos/nixpkgs/heads/nixos-unstable
+# add n:unstable
 import (builtins.fetchTarball {
-  name   = "nixpkgs_nixos-unstable_0f5ce2";
-  url    = "https://github.com/nixos/nixpkgs/archive/0f5ce2fac0c726036ca69a5524c59a49e2973dd4.tar.gz";
-  sha256 = "0nkk492aa7pr0d30vv1aw192wc16wpa1j02925pldc09s9m9i0r3";
+  name   = "nixpkgs_heads+nixos-unstable_3d1a77";
+  url    = "https://github.com/nixos/nixpkgs/archive/3d1a7716d7f1fccbd7d30ab3b2ed3db831f43bde.tar.gz";
+  sha256 = "14r8qa6lnzp78c3amzi5r8n11l1kcxcx1gjhnc1kmn4indd43649";
 })
 

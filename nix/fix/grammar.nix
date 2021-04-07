@@ -1,8 +1,8 @@
 # Auto-generated with fixnix (version 0.0.0)
 # add gh:kalhauge/grammar
 builtins.fetchTarball {
-  name   = "grammar_6be5e8";
-  url    = "https://github.com/kalhauge/grammar/archive/6be5e8ebf896a70011a43639456da93e1a3f8e21.tar.gz";
-  sha256 = "0j737jydxwh1ijq75hpx1hsh35v4pprgz0h8fcw4ikvgyjkg0n2c";
+  name   = "grammar_c49ce2";
+  url    = "https://github.com/kalhauge/grammar/archive/c49ce27898b55a561c8dc41cfae3724c47bfac66.tar.gz";
+  sha256 = "0hlgzm88xm0mhybm2jws9xwxisf3mdfwx2m9kgjl5331ip4wzgvk";
 }
 
