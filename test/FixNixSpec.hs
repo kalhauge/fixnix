@@ -112,7 +112,7 @@ spec = do
             (fixnixParserInfo $ GlobalConfig
               { cfgLocationTypes = locations
               , cfgCache = [absdir|/home/user/.config/fixnix|]
-              , cfgHistory = [absdir|/home/user/.config/fixnix/history.txt|]
+              , cfgHistory = [absfile|/home/user/.config/fixnix/history.txt|]
               }
             )
             ["-h"]
